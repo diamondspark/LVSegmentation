@@ -12,12 +12,18 @@ def readImage(path, file_format):
 
 class Image:
 
-    def __init__(self, path, fformat):
+    def __init__(self, path, fformat, img=None):
         self.path = path
         self.fformat = fformat
-        self.img = readImage(path,fformat)
-
+        if img is None:
+            self.img = readImage(path,fformat)
+        else:
+            self.img = img
+            
     def display(self):
         pylab.imshow(self.img, cmap= pylab.cm.bone)
         pylab.show()
         
+    def resize(self, width, height):
+        return Image('','',cv2.resize(self.img,(width,height)))
+    
