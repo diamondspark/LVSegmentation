@@ -3,4 +3,4 @@ import cv2
 
 
 def readImage(path):
-    img = imread
+    img = cv2.imread(path,0)
