@@ -1,2 +1,2 @@
-print "This is to end the world \n UNHELLO WORLD!"
+print "HELLO WORLD!"
 
