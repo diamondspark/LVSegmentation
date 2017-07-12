@@ -218,7 +218,10 @@ class model_pip(object):
         
         
         # create new OrderedDict that does not contain `module.`
-        if(len(self.gpu)>1):
+        if(not(self.use_gpu)):
+            self.model.load_state_dict(checkpoint['state_dict'])
+        
+        if(self.use_gpu and len(self.gpu)>1):
             new_state_dict = OrderedDict()
             for k, v in checkpoint['state_dict'].items():
                 name = k[7:] # remove `module.`
@@ -226,7 +229,7 @@ class model_pip(object):
             # load params
             self.model.load_state_dict(new_state_dict)
         
-        if(self.gpu in range(0,torch.cuda.device_count())):
+        if(self.use_gpu and self.gpu in range(0,torch.cuda.device_count())):
             
             self.model.load_state_dict(checkpoint['state_dict'])
             
@@ -393,7 +396,7 @@ class model_pip(object):
         model_ind = model_name[:model_dir.find('.pth.tar')]
         multi_gpu = False
         
-        if(torch.cuda.is_available() and self.use_gpu and (self.gpu in range(0,torch.cuda.device_count())) ):
+        if(self.use_gpu and torch.cuda.is_available() and self.gpu in range(0,torch.cuda.device_count())):
             #print('here')
             #torch.cuda.set_device(self.gpu)
             model=model.cuda()
@@ -401,7 +404,7 @@ class model_pip(object):
             #print('there')
             #criterion=criterion.cuda()
         
-        elif(torch.cuda.is_available() and self.use_gpu and  len(self.gpu)>1):
+        elif(self.use_gpu and torch.cuda.is_available()  and  len(self.gpu)>1):
             multi_gpu = True
             #model = model.cuda(self.gpu[0])
             model = DataParallel(model,device_ids = self.gpu).cuda()

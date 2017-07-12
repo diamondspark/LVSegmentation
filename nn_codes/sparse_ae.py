@@ -5,7 +5,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from torch.autograd import Variable
 from torchvision import datasets,transforms
-
+import scipy.misc
 # n_in=121,n_h=100,n_out=121
 
 import numpy 
@@ -29,8 +29,8 @@ class SAE(nn.Module):
         #return (self.fc1(x))
         
     def decode(self,x):
-        return self.f(self.fc2(x))
-        #return (self.fc2(x))
+        #return self.f(self.fc2(x))
+        return (self.fc2(x))
         
     def forward(self,x):
         
@@ -48,10 +48,18 @@ class SAE(nn.Module):
 
 
 
-
+import os
+import shutil
 def train(model,inp,epochs):
     torch.cuda.set_device(0)
-    optimizer = optim.Adamax(model.parameters(),lr = 0.1,weight_decay=1e-4)
+    try:
+        shutil.rmtree('../../saved/')
+        os.makedirs('../../saved/')
+    except:
+        os.makedirs('../../saved/')
+        
+        
+    optimizer = optim.SGD(model.parameters(),lr = 0.01)
     fig = plt.figure()
     model.train()
     ax = fig.add_subplot(1,1,1)  
@@ -70,9 +78,9 @@ def train(model,inp,epochs):
         print(loss)
         loss.backward()
         optimizer.step()
-        #del(inp1)
-        #ax.clear()
+        
         plt.imshow(out.cpu().data.numpy().reshape(121,121),cmap='gray'),plt.show()
+        scipy.misc.imsave('../../saved/'+str(epochs)+'_saved.png',out.cpu().data.numpy().reshape(121,121))
         #ax.imshow(out.cpu().data.numpy().reshape(121,121))
         
         #ax.close()
