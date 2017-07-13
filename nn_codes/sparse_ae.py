@@ -45,11 +45,6 @@ class SAE(nn.Module):
 
 ### TODO - add L2 regularzation and KL divergence
 #def loss_function(model,inp,target):
-
-
-
-import os
-import shutil
 def train(model,inp,epochs):
     torch.cuda.set_device(0)
     try:
@@ -81,11 +76,40 @@ def train(model,inp,epochs):
         
         plt.imshow(out.cpu().data.numpy().reshape(121,121),cmap='gray'),plt.show()
         scipy.misc.imsave('../../saved/'+str(epochs)+'_saved.png',out.cpu().data.numpy().reshape(121,121))
+        
+
+
+class localnet(nn.Module):
+    def __init__(self):
+        
+        self.conv = nn.Conv2d(1,100,11)
+        self.avg_pool = nn.AvgPool2d(6,6)
+        self.relu = nn.Relu()
+        self.classifier = nn.Linear(8100,1024)
+        
+    def forward(self,x):
+        
+        x = self.conv(x)
+        x = self.relu(x)
+        x = self.avg_pool(x)
+        
+        x = x.View(-1,8100)
+        
+        x = self.classifier(x)
+        x = self.relu(x)
+        return nn.Softmax(x)
+
+import os
+import shutil
+
+        
         #ax.imshow(out.cpu().data.numpy().reshape(121,121))
         
         #ax.close()
         
         #del(out)
+        
+
         
     
     
