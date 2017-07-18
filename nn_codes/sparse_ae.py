@@ -97,7 +97,7 @@ class SAE(nn.Module):
         return x    
 
     
-def train(model,epochs):
+def train_sae(model,epochs):
     torch.cuda.set_device(0)
 
     optimizer = optim.SGD(model.parameters(),lr = 0.001)
@@ -116,30 +116,28 @@ def train(model,epochs):
             #print(i)
             inp1,_ = i
             #print(inp1.size())
-            #print(ss.size())
-            #plt.imshow(inp1.numpy()[0].transpose(1,2,0)),plt.show()
             
             optimizer.zero_grad()
-
             inp1 = Variable(inp1.cuda())
             #print(inp1.size())
             
             out = model(inp1)
+            #print(out.size())
+            
             loss = torch.norm(out - inp1.view(-1,model.n_in*model.n_in))**2
-            print(loss)
+            #print(loss)
             loss.backward()
             optimizer.step()
             del(loss)
             
             del(inp1)
-            
+    model=model.cpu()     
     for p in model.modules():
         if isinstance(p,nn.Linear):
             print(p)
             return p.weight.data,p.bias.data
 
-        #return 
-
+        
 class localnet(nn.Module):
     def __init__(self):
         super(localnet,self).__init__()
@@ -160,6 +158,8 @@ class localnet(nn.Module):
         x = self.classifier(x)
         x = nn.functional.relu(x)
         return nn.Softmax(x)
+    
+    
 
 import os
 import shutil
