@@ -7,6 +7,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
+import scipy.misc
+
+def get_box(label_path): 
+    
+    #print(os.listdir(label_path))
+    img_gen = (i for i in os.listdir(label_path) if len(i)>5)
+
+    for i in img_gen:
+        img = plt.imread(label_path+'/'+i)
+        if(img.max()==1):
+            box = np.zeros_like(img)
+            mean_pos = np.mean(np.where(img==1),axis=1).astype(int)
+            box[mean_pos[0]-49:mean_pos[0]+50,mean_pos[1]-49:mean_pos[1]+50] = 1
+        scipy.misc.imsave('/data/gabriel/LVseg/dataset_img/box_256/'+i,box)
+    
 def get_series(label_path,test_fraction = 0.05):
     
     series_name = [i[:-4] for i in os.listdir(label_path) if '.png' in i]
@@ -26,10 +41,6 @@ def find_stats(path):
     Ex2 = 0
     mean = 0
     for i in im_list:
-#		print(i.max())
-#		print(i.mean())
-
-#		break
         mean += i.mean()
         y = i**2
         Ex2 += y.mean()
@@ -98,4 +109,3 @@ def get_patches(data_path,save_path,count = 10**4):
         scipy.misc.imsave(save_path+'/'+str(count1)+'.png',patch)
         count1+=1
         i+=1
-    #print(count1)
