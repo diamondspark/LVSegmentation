@@ -8,123 +8,137 @@ from torchvision import datasets,transforms
 import scipy.misc
 # n_in=121,n_h=100,n_out=121
 import random
-import numpy 
+import numpy as np
+import simplejson
+import torchvision
+from utils import get_series,find_stats,get_patches
+### Train mean = 0.122231430457 
+### Train sd = 0.162071986271
 class SAE(nn.Module):
-    def __init__(self,n_in=11,n_h=100,n_out=11,data_path='./',b_size = 1000, patch_size = 100):
+    def __init__(self,n_in=11,n_h=100,n_out=11,img_path='/data/gabriel/LVseg/dataset_img/img_256',
+                 label_path = 0,b_size = 1000, patch_size = 0):
+        
+        ### patch_size to rescale the image input to auto encoder.
+        
         super(SAE,self).__init__()
         
-        
+        self.patch_size=patch_size
         self.fc1 = nn.Linear(n_in*n_in,n_h)
         self.fc2 = nn.Linear(n_h,n_out*n_out)
-        self.data_path = data_path
+        self.img_path = img_path
+        self.label_path=label_path
         #self.f = nn.Sigmoid()
         self.b_size=b_size
         self.n_in = n_in
         self.n_h = n_h
         self.n_out = n_out
+    
+    
+    
+
+    def transform(self,rand = False,patch_path = './',mean=0,sd = 1):
         
-    def get_patches(self,save_path,count = 10**4):
-        count1 = 0
         
-        raise NotImplementedError 
         
-        for i in os.listdir(self.data_path+'/Training'):
-            for j in os.listdir(self.data_path+'/Training/'+i):
-                print
-                
-                
-        im_list = [plt.imread(self.data_path+'/Training/'+i) for i in os.listdir(self.data_path+'/Training') if not(i=='.') 
-                  and not(i=='.DS_Store')]
-        random.shuffle(im_list)
+        train_series = get_series(self.img_path,0)
         
-        for i in os.listdir(im_list[:count]):
+        dim = plt.imread(self.img_path+'/'+train_series[0]+'.png').shape
+        
+        label_train = torch.zeros(len(train_series),dim[0],dim[1])
+        img_train = torch.zeros(len(train_series),1,dim[0],dim[1])
+        
+        
+        count = -1
+        
+        mean,sd = find_stats(self.img_path)
+        
+        for i in train_series:
+            count+=1
+            temp_im = plt.imread(self.img_path+'/'+i+'.png')
+            temp_im.reshape(1,dim[0],dim[1])
             
-            R = random.randint(11,i.shape[0])
-            C = random.randint(11,i.shape[1])
-            patch = i[R-11:R,C-11:C]
-            scipy.io.imsave(save_path+'/'+count1+'.png',patch)
-            count1+=1
+            img_train[count,:,:,:] = transforms.ToTensor()(temp_im)
+            
+            img_train[count,:,:,:].sub(mean).div(sd)
+            
+            if not(self.label_path ==0):
+                label_train[count,:,:] = transforms.ToTensor()(plt.imread(self.label_path+'/'+i+'.png'))
         
-    def transform(self,rand = False,test_only = False):
+        if(patch_path=='./'):
+            patch_path = self.img_path
         
-        test_sets = ['Training','Validation']
-        data_transforms = {'Training':transforms.Compose([
-                                          transforms.ToTensor(),
-                                          transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
-               ,
-               'Validation':transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])]),
-
-        }
-
-        
-        for i,j,k in os.walk(self.data_path):
+        for i,j,k in os.walk(self.img_path):
             if '.ipynb_checkpoints' in i:
                 print(i)
                 shutil.rmtree(i)
+        
+        dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
+        
+        #dsets = {'Training':datasets.ImageFolder(os.path.join(patch_path,'Training'),data_transforms['Training'])}
 
-                
-        #return
-        dsets = {x:datasets.ImageFolder(os.path.join(self.data_path,x),data_transforms[x])
-            for x in test_sets}
+        dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=self.b_size,shuffle=False,num_workers=4)
+              }
 
-        dset_loaders ={x: torch.utils.data.DataLoader(dsets[x],batch_size=self.b_size,shuffle=True,num_workers=4)
-              for x in test_sets}
-
-        dset_sizes = {x:len(dsets[x]) for x in test_sets}
+        dset_sizes = {'Training':len(dsets['Training'])}
         ### TODO maybe use os.listdir to get the made folders ?? or make the folders on the fly based on test_only input
         return dsets,dset_loaders,dset_sizes
-
-        
-    
-
-
-    def encode(self,x):
-        
-        return nn.Sigmoid(self.fc1(x))
-        #return (self.fc1(x))
-        
-    def decode(self,x):
-        #return nn.Sigmoid(self.fc2(x))
-        return (self.fc2(x))
         
     def forward(self,x):
+        x = x.view(-1,self.n_in*self.n_in)
+        #print(x.size())
+        x = self.fc1(x.view(-1,self.n_in*self.n_in))
         
-        #if(len(x.numpy().shape)>1):
+        x = torch.nn.functional.sigmoid(x)
         
-        x = self.encode(x.view(-1,self.n_in*self.n_in))
+        x = self.fc2(x)
         
-        #x = self.decode(x)
+        x = torch.nn.functional.sigmoid(x)
         
-        return self.decode(x)
+        return x    
+
     
-
-def train(model,inp,epochs):
+def train(model,epochs):
     torch.cuda.set_device(0)
-    try:
-        shutil.rmtree('../../saved/')
-        os.makedirs('../../saved/')
-    except:
-        os.makedirs('../../saved/')
 
-
-    optimizer = optim.SGD(model.parameters(),lr = 0.01)
-    fig = plt.figure()
+    optimizer = optim.SGD(model.parameters(),lr = 0.001)
+    #fig = plt.figure()
     model.train()
-    ax = fig.add_subplot(1,1,1)  
-    for epochs in range(0,epochs):
-        inp1 = inp
-        optimizer.zero_grad()
+    #ax = fig.add_subplot(1,1,1) 
+    
+    data_set,dataset_loader,data_size = model.transform()
+    #print(dataset_loader['Training'].next())
+    #print(dataset_loader)
+    #print(data_set['Training'])
+    model = model.cuda()
+    for epoch in range(0,epochs):
 
-        inp1 = Variable(inp1.cuda())
-        model = model.cuda()
-        out = model(inp1)
-        loss = torch.norm(out - inp1)**2
-        print(loss)
-        loss.backward()
-        optimizer.step()        
+        for i in dataset_loader['Training']:
+            #print(i)
+            inp1,_ = i
+            #print(inp1.size())
+            #print(ss.size())
+            #plt.imshow(inp1.numpy()[0].transpose(1,2,0)),plt.show()
+            
+            optimizer.zero_grad()
 
+            inp1 = Variable(inp1.cuda())
+            #print(inp1.size())
+            
+            out = model(inp1)
+            loss = torch.norm(out - inp1.view(-1,model.n_in*model.n_in))**2
+            print(loss)
+            loss.backward()
+            optimizer.step()
+            del(loss)
+            
+            del(inp1)
+            
+    for p in model.modules():
+        if isinstance(p,nn.Linear):
+            print(p)
+            return p.weight.data,p.bias.data
+
+        #return 
 
 class localnet(nn.Module):
     def __init__(self):
