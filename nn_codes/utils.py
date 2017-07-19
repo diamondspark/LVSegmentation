@@ -29,10 +29,14 @@ def get_series(label_path,test_fraction = 0.05):
     random.shuffle(series_name)
     sz = len(series_name)
     ### returns train and test
+    train_end = int(np.ceil(sz - test_fraction*sz))
+    test_start = int(train_end+1)
+    #print(train_end)
+    #print(test_start)
     if (test_fraction>0):
-        return series_name[test_fraction*sz//1 : ],series_name[:-1+test_fraction*sz//1]
+        return series_name[ :train_end ],series_name[test_start:]
     else:
-        return series_name[test_fraction*sz//1 : ]
+        return series_name
 
 def find_stats(path):
     
