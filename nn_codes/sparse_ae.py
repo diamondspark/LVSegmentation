@@ -17,12 +17,13 @@ from utils import get_series,find_stats,get_patches
 ### Train sd = 0.162071986271
 class SAE(nn.Module):
     def __init__(self,n_in=11,n_h=100,n_out=11,img_path='/data/gabriel/LVseg/dataset_img/img_256',
-                 label_path = 0,b_size = 1000, patch_size = 0,lr=0.01,rho=0.1):
+                 label_path = 0,b_size = 1000, patch_size = 0,lr=0.01,rho=0.1,gpu=1):
         
         ### patch_size to rescale the image input to auto encoder.
         
         super(SAE,self).__init__()
         self.lr = lr
+        self.gpu = gpu
         self.rho = rho
         self.patch_size=patch_size
         self.fc1 = nn.Linear(n_in*n_in,n_h)
@@ -107,7 +108,7 @@ class SAE(nn.Module):
 
     
 def train_sae(model,epochs):
-    torch.cuda.set_device(0)
+    torch.cuda.set_device(model.gpu)
 
     optimizer = optim.Adam(model.parameters(),lr = model.lr)
     #fig = plt.figure()
@@ -380,7 +381,7 @@ def train_lnet(model,epochs,fname,save_dir,pretrain=True):
             #print(out)
             #print(label)
             
-            loss =(torch.norm(out - label)**2)/(2*data_size2['Training']) + (torch.norm(model.state_dict()['classifier.weight']) + torch.norm(model.state_dict()['conv.weight']))/(20**4)
+            loss =(torch.norm(out - label)**2)/(2*data_size2['Training']) + (torch.norm(model.state_dict()['classifier.weight']) + torch.norm(model.state_dict()['conv.weight']))/(2*(10**4))
             #print(out[0].cpu().numpy())
             #scipy.misc.imsave(save_dir+'/'+str(epoch)+'.png',scipy.misc.imresize(out[0,:].cpu().data.numpy().reshape(32,32),(256,256)))
             
@@ -391,14 +392,14 @@ def train_lnet(model,epochs,fname,save_dir,pretrain=True):
             
             del(inp1)
         #print(running_loss)
-        loss_arr.append(running_loss)
+        loss_arr.append(running_loss.cpu().numpy()[0])
         
     plt.plot(np.array(loss_arr)),plt.show()
     plt.savefig(save_dir+'/'+'train_loss.png')
     model=model.cpu() 
     model.store_model(fname)
     
-def test_lnet(model,savedir,fname='0'):
+def test_lnet(model,fname='0'):
     torch.cuda.set_device(model.gpu)
     #optimizer = optim.SGD(model.parameters(),lr = 0.001)
     #fig = plt.figure()
