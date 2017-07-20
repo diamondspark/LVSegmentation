@@ -18,10 +18,12 @@ def LoadFromDir(path):
          imageList_dcm.append(im)
          
 #Load From Directory
-LoadFromDir('/Users/mop2014/Desktop/_Mohit/My Garbage/img_256')
+#LoadFromDir('/Users/mop2014/Desktop/_Mohit/My Garbage/img_256')
+LoadFromDir('/data/gabriel/LVseg/dataset_img/img_256')
 images = imageList_png
 imageList_png=[]
-LoadFromDir('/Users/mop2014/Desktop/_Mohit/My Garbage/box_256')
+#LoadFromDir('/Users/mop2014/Desktop/_Mohit/My Garbage/box_256')
+LoadFromDir('/data/gabriel/LVseg/dataset_img/box_256')
 labels = imageList_png
 
 #Make Data

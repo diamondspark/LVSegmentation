@@ -20,7 +20,7 @@ num_filters2 = 36         # There are 36 of these filters.
 # Fully-connected layer.
 fc_size = 1024           # Number of neurons in fully-connected layer.
 
-train_batch_size = 1000
+train_batch_size = 10
 
 ##from tensorflow.examples.tutorials.mnist import input_data
 ##data = input_data.read_data_sets('data/MNIST/', one_hot=True)
@@ -259,7 +259,7 @@ def optimize(num_iterations):
 
     for i in range(total_iterations,
                    total_iterations + num_iterations):
-        print i
+        
         # Get a batch of training examples.
         # x_batch now holds a batch of images and
         # y_true_batch are the true labels for those images.
@@ -279,7 +279,8 @@ def optimize(num_iterations):
         session.run(optimizer, feed_dict=feed_dict_train)
 
         # Print status every 100 iterations.
-        if i % 10 == 0:
+        if i % 100 == 0:
+            print i
             y_pred_image = tf.reshape(y_pred,[-1,32,32])
             q= y_pred_image.eval(feed_dict=feed_dict_train, session=session)
             fig, axes = plt.subplots(1, 2)
@@ -440,4 +441,4 @@ def print_test_accuracy(show_example_errors=False,
         plot_confusion_matrix(cls_pred=cls_pred)
 
 
-optimize(21)
+optimize(1001)
