@@ -245,7 +245,7 @@ class localnet(nn.Module):
                 #plt.imshow(temp_im2),plt.show()
                 #print(temp_im2.min())
                 #print(temp_im2.max())
-                temp_im2[np.where(np.abs(temp_im2-0)>0)]=1.0
+                temp_im2[np.where(np.abs(temp_im2-0)>0)]=1
                 
                 #plt.imshow(temp_im2),plt.show()
                 temp_im2 = torch.Tensor(temp_im2)
@@ -337,7 +337,7 @@ def train_lnet(model,epochs,fname,save_dir,pretrain=True):
             running_loss= 0
             for i in dataset_loader['Training']:
                 inp1,label = i
-                label = Variable(label.cuda())
+                label = Variable((label).cuda())
                 optimizer.zero_grad()
                 inp1 = Variable(inp1.cuda())
 
@@ -349,7 +349,8 @@ def train_lnet(model,epochs,fname,save_dir,pretrain=True):
                 #print(out)
                 #print(label)
                 #print(model.state_dict()['conv.weight'])
-                loss =((torch.norm(out - label)**2)/(2*data_size['Training'])) +torch.norm(model.state_dict()['classifier.weight'])/(2*(10**4))
+                #loss =((torch.norm(out - label)**2)/(2*data_size['Training'])) +torch.norm(model.state_dict()['classifier.weight'])/(2*(10**4))
+                loss =torch.nn.functional.binary_cross_entropy(out,label) +torch.norm(model.state_dict()['classifier.weight'])/(2*(10**4))
                 #print(out[0].cpu().numpy())
                 running_loss+=loss.data
                 loss.backward()
@@ -364,6 +365,7 @@ def train_lnet(model,epochs,fname,save_dir,pretrain=True):
         
     model.train()
     optimizer2 = optim.Adam(model.parameters(),lr = model.lr)
+    loss_i = np.inf
     for epoch in range(0,epochs):
         #print(epoch)
         running_loss= 0
@@ -393,13 +395,22 @@ def train_lnet(model,epochs,fname,save_dir,pretrain=True):
             del(inp1)
         #print(running_loss)
         loss_arr.append(running_loss.cpu().numpy()[0])
-        
-    plt.plot(np.array(loss_arr)),plt.show()
+        print(running_loss.cpu().numpy()[0])
+        print(running_loss.cpu().numpy())
+        if(running_loss.cpu().numpy()[0]<loss_i):
+            print('loss_i')
+            loss_i = running_loss.cpu().numpy()[0]
+            best_model = model
+    #plt.figure()    
+    plt.plot(np.array(loss_arr))
     plt.savefig(save_dir+'/'+'train_loss.png')
+    plt.show()
+    
     model=model.cpu() 
     model.store_model(fname)
+    best_model.store_model(fname[:fname.find('.pth.')]+'_best_loss.pth.tar')
     
-def test_lnet(model,fname='0'):
+def test_lnet(model,fname='0',save_dir='0'):
     torch.cuda.set_device(model.gpu)
     #optimizer = optim.SGD(model.parameters(),lr = 0.001)
     #fig = plt.figure()
@@ -427,9 +438,12 @@ def test_lnet(model,fname='0'):
         out = model(inp1)
         
         for i in range(label.size()[0]):
-            scipy.misc.imsave('/data/gabriel/LVseg/progress_box/'+str(i)+'_test.png',
+            scipy.misc.imsave(save_dir+'/'+str(i)+'_img.png',
+                              scipy.misc.imresize(inp1.data.cpu()[i,0,:,:].numpy().reshape(64,64),(256,256)))
+            
+            scipy.misc.imsave(save_dir+'/'+str(i)+'_test.png',
                               scipy.misc.imresize(out.data.cpu()[i,:].numpy().reshape(32,32),(256,256)))
-            scipy.misc.imsave('/data/gabriel/LVseg/progress_box/'+str(i)+'_label.png',
+            scipy.misc.imsave(save_dir+'/'+str(i)+'_label.png',
                               scipy.misc.imresize(label.data.cpu()[i,:].numpy().reshape(32,32),(256,256)))
 
         #plt.imshow(out.cpu().numpy().reshape(32,32)),plt.show()
@@ -442,15 +456,149 @@ def test_lnet(model,fname='0'):
     model.store_model(fname)
     
 
+class StackedAE(nn.Module):
+    def __init__(self,img_path,label_path,gpu=0,n_in = 4096,n_h =100 ,n_out = 4096,test_fraction=0,lr=0.01):
+        super(StackedAE,self).__init__()
+        self.img_dir=img_path
+        self.label_dir=label_path
+        self.gpu = gpu
+        self.n_in = n_in
+        self.n_h = n_h
+        self.n_out = n_out
+        self.test_fraction = test_fraction
+        self.lr = lr
+        self.fc1 = nn.Linear(n_in,n_h)
+        self.fc2 = nn.Linear(n_h,n_h)
+        self.fc3 = nn.Linear(n_h,n_out)
+        
+    def forward(self,x):
+        x = x.view(-1,n_in)
+        
+        x = self.fc1(x)
+        x = nn.functional.sigmoid(x)
+        h1 = x
+        
+        x = self.fc2(x)
+        x = nn.functional.sigmoid(x)
+        h2 = x
+        
+        x = self.fc3(x)
+        x = nn.functional.sigmoid(x)
+       
+    def transform(self,rand = False,mean=0,sd = 1):
+        mean,sd = find_stats(self.img_path)
+        if(self.test_fraction>0):
+            train_series,test_series = get_series(self.img_path,self.test_fraction)
+            
+            label_test = torch.zeros(len(test_series),n_out)
+            img_test = torch.zeros(len(test_series),1,n_in)
+            count=-1
+            for i in test_series:
+                count+=1
+                
+                temp_im = plt.imread(self.img_path+'/'+i+'.png')
+                temp_im-=mean
+                temp_m/=sd
+                
+                img_test[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64)))
+                
+
+                
+                
+                if not(self.label_path ==0):
+                    temp_im = scipy.misc.imresize(plt.imread(self.label_path+'/'+i+'.png'),(64,64))
+                    temp_im[temp_im>0]=1
+                    label_test[count,:] = torch.Tensor(temp_im).view(4096)
+                    
+                
+            dsets1 = {'Test':torch.utils.data.TensorDataset(img_test,label_test)}
+
+            dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets['Test'],batch_size=self.b_size,shuffle=False,num_workers=4)
+                  }
+            dset_sizes1 = {'Test':len(dsets1['Test'])}
+
+            
+            with open('/data/gabriel/LVseg/progress_box/test_loader_st.p','wb') as f:
+                pickle.dump(dset_loaders1 ,f)
+            
+            with open('/data/gabriel/LVseg/progress_box/test_size_st.p','wb') as f:
+                pickle.dump(dset_sizes1 ,f)
+        
+        else:
+            train_series = get_series(self.img_path,self.test_fraction)
+            
+        dim = plt.imread(self.img_path+'/'+train_series[0]+'.png').shape
+        
+        label_train = torch.zeros(len(train_series),n_out)
+        img_train = torch.zeros(len(train_series),1,n_in)
+        
+        
+        count = -1
+        
+       
+        
+        for i in train_series:
+            count+=1
+            temp_im = plt.imread(self.img_path+'/'+i+'.png')
+            temp_im.reshape(1,dim[0],dim[1])
+            
+            img_train[count,:,:,:] = torch.Tensor(temp_im)
+            
+            img_train[count,:,:,:].sub(mean).div(sd)
+            
+            if not(self.label_path ==0):
+                label_train[count,:] = torch.Tensor(plt.imread(self.label_path+'/'+i+'.png'))
+        
+      
+        dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
+        
+        dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=self.b_size,shuffle=False,num_workers=4)
+              }
+
+        dset_sizes = {'Training':len(dsets['Training'])}
+        ### TODO maybe use os.listdir to get the made folders ?? or make the folders on the fly based on test_only input
+        return dset_loaders,dset_sizes
+
+def test_st_ae(model,fname='0',save_dir='0'):
+    torch.cuda.set_device(model.gpu)
+    #optimizer = optim.SGD(model.parameters(),lr = 0.001)
+    #fig = plt.figure()
+    model.eval()
+    
+    if(not(fname=='0')):
+        model.load_model(fname)
+        
+    with open('/data/gabriel//LVseg/progress_box/test_box/test_loader_st.p', 'rb') as pickle_file:
+        dataset_loader = pickle.load(pickle_file)
+    
+    with open('/data/gabriel//LVseg/progress_box/test_box/test_size_st.p', 'rb') as pickle_file:
+        dset_size = pickle.load(pickle_file)
+    
+    model = model.cuda()
+    
+
+    for i in dataset_loader['Test']:
+        #print(i)
+        inp1,label = i
+        print(label.size())
+        inp1 = Variable(inp1.cuda())
+        #print(inp1.size())
+        label = Variable(label.cuda())
+        out = model(inp1)
+        
+        for i in range(label.size()[0]):
+            scipy.misc.imsave(save_dir+'/'+str(i)+'_test.png',
+                              scipy.misc.imresize(out.data.cpu()[i,:].numpy().reshape(64,64),(100,100)))
+            scipy.misc.imsave(save_dir+'/'+str(i)+'_label.png',
+                              scipy.misc.imresize(label.data.cpu()[i,:].numpy().reshape(64,64),(100,100)))
+
+        #plt.imshow(out.cpu().numpy().reshape(32,32)),plt.show()
+        #plt.imshow(label.cpu().numpy().reshape(32,32)),plt.show()
 
         
+        del(inp1)
+
+    model=model.cpu() 
+    model.store_model(fname)
+            
     
-    
-    
-    
-        
-        
-        
-        
-        
-        
