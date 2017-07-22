@@ -9,6 +9,83 @@ import os
 import random
 import scipy.misc
 
+'''
+def compare_result(box_path,label_path,img_path):
+    for i in os.listdir(box_path):
+        if('.png' in i):
+            img = plt.imread()
+'''
+
+def split_im(src_img,src_label,dst,split_fraction=0.8):
+    
+    train,test = get_series(label_path = src_label,test_fraction = 1-split_fraction)
+    
+    try:
+        shutil.rmtree(dst)
+        os.makedirs(dst)
+        os.makedirs(dst+'/'+'train_label')
+        os.makedirs(dst+'/'+'test_img')
+        os.makedirs(dst+'/'+'train_img')
+        os.makedirs(dst+'/'+'test_label')
+    except:    
+        os.makedirs(dst)
+        os.makedirs(dst+'/'+'train_label')
+        os.makedirs(dst+'/'+'test_img')
+        os.makedirs(dst+'/'+'train_img')
+        os.makedirs(dst+'/'+'test_label')
+
+    img_train_gen = [k for k in os.listdir(src_img) if '.png' in k and k[:-4] in train]
+    img_test_gen = [k for k in os.listdir(src_img) if '.png' in k and k[:-4] in test]
+   
+    for i in img_train_gen: 
+        print(i)
+        scipy.misc.imsave(dst+'/'+'train_img/'+i+'.png',plt.imread(src_img+'/'+i))
+        scipy.misc.imsave(dst+'/'+'train_label/'+i+'.png',plt.imread(src_label+'/'+i))
+    
+    for i in img_test_gen:
+        scipy.misc.imsave(dst+'/'+'test_img/'+i+'.png',plt.imread(src_img+'/'+i))
+        scipy.misc.imsave(dst+'/'+'test_label/'+i+'.png',plt.imread(src_label+'/'+i))
+            
+    return len(img_train_gen),len(img_test_gen)
+    
+def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/cropped'):
+    try:
+        shutil.rmtree(save_path)
+        os.makedirs(save_path)
+        os.makedirs(save_path+'/'+'img')
+        os.makedirs(save_path+'/'+'neg_img')
+        os.makedirs(save_path+'/'+'label')
+        os.makedirs(save_path+'/'+'neg_label')
+    except:
+        os.makedirs(save_path)
+        os.makedirs(save_path+'/'+'img')
+        os.makedirs(save_path+'/'+'neg_img')
+        os.makedirs(save_path+'/'+'label')
+        os.makedirs(save_path+'/'+'neg_label')
+        
+    label_name_gen = (i for i in os.listdir(label_path) if '.png' in i)
+    zero = np.zeros((100,100))
+    for i in label_name_gen:
+    
+        img = plt.imread(img_path+'/'+i)
+        label = plt.imread(label_path+'/'+i)
+        
+        
+        
+        if((label**2).sum()==0):
+            scipy.misc.imsave(save_path+'/'+'neg_label'+'/'+i,zero)
+            scipy.misc.imsave(save_path+'/'+'neg_img'+'/'+i,img)
+            
+        else:
+            
+
+            mean_pos = np.mean(np.where(label>0),axis=1).astype(int)
+
+            scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+            scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+
+        
+        
 def get_box(label_path): 
     
     #print(os.listdir(label_path))
@@ -19,7 +96,8 @@ def get_box(label_path):
         if(img.max()==1):
             box = np.zeros_like(img)
             mean_pos = np.mean(np.where(img==1),axis=1).astype(int)
-            box[mean_pos[0]-49:mean_pos[0]+50,mean_pos[1]-49:mean_pos[1]+50] = 1
+            print(mean_pos)
+            box[mean_pos[0]-50:mean_pos[0]+50,mean_pos[1]-50:mean_pos[1]+50] = 1
         scipy.misc.imsave('/data/gabriel/LVseg/dataset_img/box_256/'+i,box)
     
 def get_series(label_path,test_fraction = 0.05):
@@ -56,7 +134,7 @@ def find_stats(path):
     return mean,Ex2
 
 
-def get_patches(data_path,save_path,count = 10**4):
+def get_patches(data_path,save_path,count = 5*10**4,patch_resize=False,patch_size=64):
     count1 = 0
 
     #raise NotImplementedError 
@@ -76,9 +154,16 @@ def get_patches(data_path,save_path,count = 10**4):
     name_im_list1 = [i for i in os.listdir(data_path) if not(i=='.') 
               and not(i=='.DS_Store') and np.sum(plt.imread(data_path+'/'+i).shape) == 512 ]
 
-    im_list1 = [scipy.misc.imresize(plt.imread(data_path+'/'+i),(64,64)) for i in os.listdir(data_path) if not(i=='.') 
+    if(patch_resize):
+        im_list1 = [scipy.misc.imresize(plt.imread(data_path+'/'+i),(patch_size,patch_size)) for i in os.listdir(data_path) if not(i=='.') 
               and not(i=='.DS_Store') and np.sum(plt.imread(data_path+'/'+i).shape) == 512 ]
 
+    else:
+        patch_size = 256
+        im_list1 = [plt.imread(data_path+'/'+i) for i in os.listdir(data_path) if not(i=='.') 
+              and not(i=='.DS_Store') and np.sum(plt.imread(data_path+'/'+i).shape) == 512 ]
+
+            
     f = open('/data/gabriel/LVseg/name_im_list.txt', 'w')
     simplejson.dump(name_im_list1, f)
     f.close()
@@ -93,19 +178,23 @@ def get_patches(data_path,save_path,count = 10**4):
             #print('here')
             i=0
         #plt.imshow(i),plt.show()
+        
+        
+        R = random.randint(11,patch_size)
 
-        R = random.randint(11,64)
+        C = random.randint(11,patch_size)
+        
+        #print(i)
+        #print(R,C)
+        if(i==0):
+            print(im_list1[i].max()) 
+        
+        im_max =im_list1[i].max()/255 
+        while(im_list1[i][R-11:R,C-11:C].mean()<im_max):
 
-        C = random.randint(11,64)
-        #print(im_list1[i].shape)
-        #print(im_list1[i][R-11:R,C-11:C].mean())
-        print(i)
-        print(R,C)
-        while(im_list1[i][R-11:R,C-11:C].mean()<1):
+            R = random.randint(11,patch_size)
 
-            R = random.randint(11,64)
-
-            C = random.randint(11,64)
+            C = random.randint(11,patch_size)
             patch = im_list1[i][R-11:R,C-11:C]
 
         patch = im_list1[i][R-11:R,C-11:C]

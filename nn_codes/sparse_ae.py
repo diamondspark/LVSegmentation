@@ -12,20 +12,23 @@ import numpy as np
 import simplejson
 import torchvision
 import pickle
-from utils import get_series,find_stats,get_patches
+from utils import find_stats,get_patches,split_im
 ### Train mean = 0.122231430457 
 ### Train sd = 0.162071986271
 class SAE(nn.Module):
     def __init__(self,n_in=11,n_h=100,n_out=11,img_path='/data/gabriel/LVseg/dataset_img/img_256',
-                 label_path = 0,b_size = 1000, patch_size = 0,lr=0.01,rho=0.1,gpu=1):
+                 label_path = 0,b_size = 1000, patch_size = 0,lr=0.01,rho=0.1,gpu=1,lam = 10**-4,beta = 3,test_fraction=0):
         
         ### patch_size to rescale the image input to auto encoder.
         
         super(SAE,self).__init__()
+        self.lam=lam
         self.lr = lr
+        self.beta = beta
         self.gpu = gpu
         self.rho = rho
         self.patch_size=patch_size
+        self.test_fraction=test_fraction
         self.fc1 = nn.Linear(n_in*n_in,n_h)
         self.fc2 = nn.Linear(n_h,n_out*n_out)
         self.img_path = img_path
@@ -42,13 +45,16 @@ class SAE(nn.Module):
     def transform(self,rand = False,patch_path = './',mean=0,sd = 1):
         
         
-        
-        train_series = get_series(self.img_path,0)
-        
+        if(self.test_fraction==0):
+            
+            train_series = get_series(self.img_path,0)
+        else:
+            train_series,test_series = get_series(self.img_path,self.test_fraction)
+ 
         dim = plt.imread(self.img_path+'/'+train_series[0]+'.png').shape
         
-        label_train = torch.zeros(len(train_series),dim[0],dim[1])
-        img_train = torch.zeros(len(train_series),1,dim[0],dim[1])
+        label_train = torch.zeros(len(train_series),model.n_out*model.n_out)
+        img_train = torch.zeros(len(train_series),1,model.n_in,model.n_in)
         
         
         count = -1
@@ -59,29 +65,28 @@ class SAE(nn.Module):
             count+=1
             temp_im = plt.imread(self.img_path+'/'+i+'.png')
             temp_im.reshape(1,dim[0],dim[1])
-            #print(temp_im.max())
-            #print(torch.Tensor(temp_im).size())
-            #print(torch.Tensor(temp_im).max())
             
             img_train[count,:,:,:] = torch.Tensor(temp_im)
             
             img_train[count,:,:,:].sub(mean).div(sd)
             
             if not(self.label_path ==0):
-                label_train[count,:,:] = torch.Tensor(plt.imread(self.label_path+'/'+i+'.png'))
+                label_train[count,:] = torch.Tensor(scipy.misc.imresize(plt.imread(self.label_path+'/'+i+'.png')))
+        
         
         if(patch_path=='./'):
             patch_path = self.img_path
+        
         
         for i,j,k in os.walk(self.img_path):
             if '.ipynb_checkpoints' in i:
                 print(i)
                 shutil.rmtree(i)
         
+        
         dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
         
-        #dsets = {'Training':datasets.ImageFolder(os.path.join(patch_path,'Training'),data_transforms['Training'])}
-
+        
         dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=self.b_size,shuffle=False,num_workers=4)
               }
 
@@ -97,14 +102,14 @@ class SAE(nn.Module):
         x = torch.nn.functional.sigmoid(x)
         
         ### hidden layer activation
-        a = x
+        #a = x
         
         x = self.fc2(x)
         
         
         x = torch.nn.functional.sigmoid(x)
         
-        return x,a    
+        return x#,a    
 
     
 def train_sae(model,epochs):
@@ -126,23 +131,18 @@ def train_sae(model,epochs):
         #print(epoch)
         running_loss=0
         for i in dataset_loader['Training']:
-            #print(i)
             inp1,_ = i
-            #print(inp1.size())
             
             optimizer.zero_grad()
             inp1 = Variable(inp1.cuda())
-            #print(inp1.size())
             
             out,a = model(inp1)
             
             a = torch.mean(a,0)
             
-            kl = torch.sum(model.rho*torch.log(0.1/a) + (1-model.rho)*torch.log((1-model.rho)/(1-a)))
+            kl = torch.sum(model.rho*torch.log(model.rho/a) + (1-model.rho)*torch.log((1-model.rho)/(1-a)))
             
-            loss = kl + ((torch.norm(out - inp1.view(-1,model.n_in*model.n_in))**2)/(2*model.b_size)) + (torch.norm(model.state_dict()['fc1.weight']) + torch.norm(model.state_dict()['fc2.weight']))/(2*(10**4)) 
-            
-            
+            loss = model.beta*kl + ((torch.norm(out - inp1.view(-1,model.n_in*model.n_in))**2)/(2*model.b_size)) + 0.5*model.lam*(torch.norm(model.state_dict()['fc1.weight']) + torch.norm(model.state_dict()['fc2.weight']))
             
             running_loss+=loss.cpu()
             loss.backward()
@@ -457,108 +457,153 @@ def test_lnet(model,fname='0',save_dir='0'):
     
 
 class StackedAE(nn.Module):
-    def __init__(self,img_path,label_path,gpu=0,n_in = 4096,n_h =100 ,n_out = 4096,test_fraction=0,lr=0.01):
+    def __init__(self,img_path,label_path,gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01):
         super(StackedAE,self).__init__()
-        self.img_dir=img_path
-        self.label_dir=label_path
+        self.img_path=img_path
+        self.label_path=label_path
         self.gpu = gpu
         self.n_in = n_in
         self.n_h = n_h
         self.n_out = n_out
         self.test_fraction = test_fraction
         self.lr = lr
-        self.fc1 = nn.Linear(n_in,n_h)
+        self.fc1 = nn.Linear(n_in*n_in,n_h)
         self.fc2 = nn.Linear(n_h,n_h)
-        self.fc3 = nn.Linear(n_h,n_out)
+        self.fc3 = nn.Linear(n_h,n_out*n_out)
         
-    def forward(self,x):
-        x = x.view(-1,n_in)
-        
+    
+    def hidden1(self,x):
         x = self.fc1(x)
         x = nn.functional.sigmoid(x)
-        h1 = x
-        
+        return x
+    
+    def hidden2(self,x):
         x = self.fc2(x)
         x = nn.functional.sigmoid(x)
-        h2 = x
-        
+        return x
+    
+    def target_layer(self,x):
         x = self.fc3(x)
         x = nn.functional.sigmoid(x)
+        return x
+    
+    def out_at_layer(self,inp,L):
+    
+        count= -1
+        for i in self.modules():
+            count+=1
+            try:
+                if(count==L):
+                    #print(tt)
+                    return(torch.nn.functional.sigmoid(i(inp)))
+                    
+            except:
+                continue
+    
+    
+    def forward(self,x):
+        x = x.view(-1,self.n_in*self.n_in)
+        
+        x = self.hidden1(x)
+        
+        x = self.hidden2(x)
+        
+        x = self.target_layer(x)
+        
+        return x
        
     def transform(self,rand = False,mean=0,sd = 1):
+        
+        ### JUST ENTER THE PATH!
+        dst = ''
+        
         mean,sd = find_stats(self.img_path)
-        if(self.test_fraction>0):
-            train_series,test_series = get_series(self.img_path,self.test_fraction)
-            
-            label_test = torch.zeros(len(test_series),n_out)
-            img_test = torch.zeros(len(test_series),1,n_in)
-            count=-1
-            for i in test_series:
-                count+=1
-                
-                temp_im = plt.imread(self.img_path+'/'+i+'.png')
-                temp_im-=mean
-                temp_m/=sd
-                
-                img_test[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64)))
-                
-
-                
-                
-                if not(self.label_path ==0):
-                    temp_im = scipy.misc.imresize(plt.imread(self.label_path+'/'+i+'.png'),(64,64))
-                    temp_im[temp_im>0]=1
-                    label_test[count,:] = torch.Tensor(temp_im).view(4096)
-                    
-                
-            dsets1 = {'Test':torch.utils.data.TensorDataset(img_test,label_test)}
-
-            dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets['Test'],batch_size=self.b_size,shuffle=False,num_workers=4)
-                  }
-            dset_sizes1 = {'Test':len(dsets1['Test'])}
-
-            
-            with open('/data/gabriel/LVseg/progress_box/test_loader_st.p','wb') as f:
-                pickle.dump(dset_loaders1 ,f)
-            
-            with open('/data/gabriel/LVseg/progress_box/test_size_st.p','wb') as f:
-                pickle.dump(dset_sizes1 ,f)
         
-        else:
-            train_series = get_series(self.img_path,self.test_fraction)
-            
-        dim = plt.imread(self.img_path+'/'+train_series[0]+'.png').shape
         
-        label_train = torch.zeros(len(train_series),n_out)
-        img_train = torch.zeros(len(train_series),1,n_in)
+        train_l,test_l= split_im(src_img = self.img_path,src_label = self.label_path,
+                 dst =dst)
         
+        count=-1
+        
+        img_test = torch.Tensor(test_l,1,64,64)
+        label_test = torch.Tensor(test_l,4096)
+        
+        for i in os.listdir(dst+'/'+'test_img'):
+            count+=1
+
+            temp_im = plt.imread(dst+'/'+i+'.png')
+            temp_im-=mean
+            temp_m/=sd
+
+            img_test[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64)))
+
+            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'test_label'+'/'+i+'.png'),(64,64))
+            temp_im[temp_im>0]=1
+            label_test[count,:] = torch.Tensor(temp_im).view(4096)
+                
+        dsets1 = {'Test':torch.utils.data.TensorDataset(img_test,label_test)}
+
+        dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets['Test'],batch_size=self.b_size,shuffle=False,num_workers=4)
+              }
+        dset_sizes1 = {'Test':len(dsets1['Test'])}
+
+        with open(dst_path+'/test_loader_st.p','wb') as f:
+            pickle.dump(dset_loaders1 ,f)
+
+        with open(dst_path+'/test_size_st.p','wb') as f:
+            pickle.dump(dset_sizes1 ,f)
+
+        
+        label_train = torch.zeros(train_l,4096)
+        img_train = torch.zeros(train,1,64,64)
         
         count = -1
         
-       
-        
-        for i in train_series:
+        for i in os.listdir(dst+'/'+'train_img'):
             count+=1
-            temp_im = plt.imread(self.img_path+'/'+i+'.png')
-            temp_im.reshape(1,dim[0],dim[1])
-            
-            img_train[count,:,:,:] = torch.Tensor(temp_im)
-            
-            img_train[count,:,:,:].sub(mean).div(sd)
-            
-            if not(self.label_path ==0):
-                label_train[count,:] = torch.Tensor(plt.imread(self.label_path+'/'+i+'.png'))
-        
-      
+
+            temp_im = plt.imread(dst+'/'+i+'.png')
+            temp_im-=mean
+            temp_m/=sd
+
+            img_train[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64)))
+
+            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'train_label'+'/'+i+'.png'),(64,64))
+            temp_im[temp_im>0]=1
+            label_train[count,:] = torch.Tensor(temp_im).view(4096)
+                
         dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
         
         dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=self.b_size,shuffle=False,num_workers=4)
               }
 
         dset_sizes = {'Training':len(dsets['Training'])}
+
+        with open(dst_path+'/train_loader_st.p','wb') as f:
+            pickle.dump(dset_loaders1 ,f)
+
+        with open(dst_path+'/train_size_st.p','wb') as f:
+            pickle.dump(dset_sizes1 ,f)
+      
         ### TODO maybe use os.listdir to get the made folders ?? or make the folders on the fly based on test_only input
         return dset_loaders,dset_sizes
 
+def train_st_ae(model_st_ae,epochs,cache_dir):
+    
+    ### cache dir to store the in hidden layer activations
+    torch.cuda.set_device(model_st_ae.gpu)
+    
+    
+    optimizer = optim.Adam(model_st_ae.parameters(),lr = model_st_ae.lr)
+    #num_
+    model_st_ae.train()
+    dataset_loader,data_size = model_st_ae.transform()
+    model = model_st_ae.cuda()
+    loss_arr = []
+    
+    ### train the first weight
+    sae_1 = SAE(n_in=64,n_h=100,n_out=64,img_path=model_st_ae.img_path,b_size = 1000, patch_size = 0,lr=0.001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
+    
 def test_st_ae(model,fname='0',save_dir='0'):
     torch.cuda.set_device(model.gpu)
     #optimizer = optim.SGD(model.parameters(),lr = 0.001)
@@ -601,4 +646,4 @@ def test_st_ae(model,fname='0',save_dir='0'):
     model=model.cpu() 
     model.store_model(fname)
             
-    
+ 
