@@ -12,7 +12,7 @@
 #SEGIm=str('/data/Gurpreet/Echo/Normal_Images/1/Images/TEE_1_1_30.jpg')
 #path=1 #specify the path variabe as 1 if you are passing the images to matlab
 #DS=calc_DiceScore(GTIm,SEGIm,path)
-
+#print(DS)
 
 ##########################################################################################################
 
@@ -33,3 +33,9 @@ def Cal_DiceScore (GTIm,SEGIm,path):
     DiceScore=eng.Cal_DiceScore(GTIm,SEGIm,path,nargout=1)
     return DiceScore
 
+#Cal_DiceScore (GTIm,SEGIm,path)
+#GTIm=str('/data/Gurpreet/Echo/Normal_Images/1/Images/TEE_1_1_1.jpg')
+#SEGIm=str('/data/Gurpreet/Echo/Normal_Images/1/Images/TEE_1_1_30.jpg')
+#path=1 #specify the path variabe as 1 if you are passing the images to matlab
+#DS=calc_DiceScore(GTIm,SEGIm,path)
+#print(DS)
