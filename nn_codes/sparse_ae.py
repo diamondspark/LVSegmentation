@@ -12,7 +12,7 @@ import numpy as np
 import simplejson
 import torchvision
 import pickle
-from utils import find_stats,get_patches,split_im
+from utils import find_stats,get_patches,split_im,get_series
 ### Train mean = 0.122231430457 
 ### Train sd = 0.162071986271
 class SAE(nn.Module):
@@ -41,6 +41,18 @@ class SAE(nn.Module):
     
     
     
+    def out_at_layer(self,inp,L):
+
+        count= -1
+        for i in self.modules():
+            count+=1
+            try:
+                if(count==L):
+                    #print(tt)
+                    return(torch.nn.functional.sigmoid(i(inp)))
+
+            except:
+                continue
 
     def transform(self,rand = False,patch_path = './',mean=0,sd = 1):
         
@@ -53,8 +65,8 @@ class SAE(nn.Module):
  
         dim = plt.imread(self.img_path+'/'+train_series[0]+'.png').shape
         
-        label_train = torch.zeros(len(train_series),model.n_out*model.n_out)
-        img_train = torch.zeros(len(train_series),1,model.n_in,model.n_in)
+        label_train = torch.zeros(len(train_series),self.n_out*self.n_out)
+        img_train = torch.zeros(len(train_series),1,self.n_in,self.n_in)
         
         
         count = -1
@@ -128,7 +140,7 @@ def train_sae(model,epochs):
     #print(data_set['Training'])
     model = model.cuda()
     for epoch in range(0,epochs):
-        #print(epoch)
+        print(epoch)
         running_loss=0
         for i in dataset_loader['Training']:
             inp1,_ = i
@@ -136,9 +148,9 @@ def train_sae(model,epochs):
             optimizer.zero_grad()
             inp1 = Variable(inp1.cuda())
             
-            out,a = model(inp1)
-            
-            a = torch.mean(a,0)
+            out = model(inp1)
+            #print(model.out_at_layer(inp1.view(-1,model.n_in**2),1))
+            a = torch.mean(model.out_at_layer(inp1.view(-1,model.n_in**2),1),0)
             
             kl = torch.sum(model.rho*torch.log(model.rho/a) + (1-model.rho)*torch.log((1-model.rho)/(1-a)))
             
@@ -193,7 +205,7 @@ class localnet(nn.Module):
         count = -1
         
         mean,sd = find_stats(self.img_path)
-        
+        self.b_size = len(train_series)
         
         for i in test_series:
             count+=1
@@ -264,9 +276,14 @@ class localnet(nn.Module):
               }
         dset_sizes1 = {'Test':len(dsets1['Test'])}
         
-        pickle.dump(dset_loaders1,open('/data/gabriel/LVseg/progress_box/test_box/test.p','wb'))    
+        with open('~/cached_data/test.p','wb') as f:
+            
         
-        pickle.dump(dset_sizes1,open('/data/gabriel/LVseg/progress_box/test_box/test_size.p','wb'))    
+            pickle.dump(dset_loaders1,f)    
+        
+        with open('~/cached_data/test.p','wb') as f:
+            
+            pickle.dump(dset_sizes1,f)    
             
         return dset_loaders,dset_sizes
 
@@ -276,7 +293,19 @@ class localnet(nn.Module):
         state={'state_dict':self.state_dict()}
                           #,'optimizer':self.model_optimizer.state_dict()}
         torch.save(state,f_name)
-    
+    def out_at_layer(self,inp,L):
+
+        count= -1
+        for i in self.modules():
+            count+=1
+            try:
+                if(count==L):
+                    #print(tt)
+                    return(torch.nn.functional.sigmoid(i(inp)))
+
+            except:
+                continue
+
     def load_model(self,filename):
         checkpoint = torch.load(filename)
         
@@ -419,10 +448,10 @@ def test_lnet(model,fname='0',save_dir='0'):
     if(not(fname=='0')):
         model.load_model(fname)
         
-    with open('/data/gabriel//LVseg/progress_box/test_box/test.p', 'rb') as pickle_file:
+    with open('~/cached_data/test.p', 'rb') as pickle_file:
         dataset_loader = pickle.load(pickle_file)
     
-    with open('/data/gabriel//LVseg/progress_box/test_box/test_size.p', 'rb') as pickle_file:
+    with open('~/cached_data/test_size.p', 'rb') as pickle_file:
         dset_size = pickle.load(pickle_file)
     
     model = model.cuda()
@@ -457,7 +486,7 @@ def test_lnet(model,fname='0',save_dir='0'):
     
 
 class StackedAE(nn.Module):
-    def __init__(self,img_path,label_path,gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01):
+    def __init__(self,img_path,label_path,gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01,test_train_dst = '/data/gabriel/LVseg/dataset_img/data_seg'):
         super(StackedAE,self).__init__()
         self.img_path=img_path
         self.label_path=label_path
@@ -470,7 +499,7 @@ class StackedAE(nn.Module):
         self.fc1 = nn.Linear(n_in*n_in,n_h)
         self.fc2 = nn.Linear(n_h,n_h)
         self.fc3 = nn.Linear(n_h,n_out*n_out)
-        
+        self.test_train_dst = test_train_dst
     
     def hidden1(self,x):
         x = self.fc1(x)
@@ -515,7 +544,7 @@ class StackedAE(nn.Module):
     def transform(self,rand = False,mean=0,sd = 1):
         
         ### JUST ENTER THE PATH!
-        dst = ''
+        dst = self.test_train_dst
         
         mean,sd = find_stats(self.img_path)
         
@@ -598,11 +627,36 @@ def train_st_ae(model_st_ae,epochs,cache_dir):
     #num_
     model_st_ae.train()
     dataset_loader,data_size = model_st_ae.transform()
-    model = model_st_ae.cuda()
+    #model = model_st_ae.cuda()
     loss_arr = []
     
     ### train the first weight
-    sae_1 = SAE(n_in=64,n_h=100,n_out=64,img_path=model_st_ae.img_path,b_size = 1000, patch_size = 0,lr=0.001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
+    
+    w1,b1 = train_sae(model=sae_1,epochs = 3000)
+    count = 1
+    cache = model_st_ae.img_path
+    for i in model_st_ae.state_dict().keys():
+        sae_1 = SAE(n_in=64,n_h=100,n_out=64,img_path=cache,b_size = 1000, patch_size = 0,lr=0.001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
+        
+        l_count = 1
+        
+        w1,b1 = train_sae(model=sae_1,epochs = 3000)
+        
+        for j in model_st_ae.modules():
+            if isinstance(j,nn.Linear) and l_count == count:
+                j.weight.data,j.bias.data = w1,b1
+                break
+            elif(isinstance(j,nn.Linear) and l_count <count):
+                l_count+=1
+        
+        ###cache hidden layer output as dataset for next pretraining
+        
+        
+        
+        
+        #model = model_st_ae.cuda()    
+        
+    
     
 def test_st_ae(model,fname='0',save_dir='0'):
     torch.cuda.set_device(model.gpu)

@@ -15,6 +15,55 @@ def compare_result(box_path,label_path,img_path):
         if('.png' in i):
             img = plt.imread()
 '''
+def split_neg(label_src,img_src,dst):
+    img_gen = (i for i in os.listdir(label_src) if '.png' in i)
+    
+    try:
+        shutil.rmtree(dst+'/'+'neg')
+        shutil.rmtree(dst+'/'+'pos')
+        os.makedirs(dst+'/'+'neg')
+        os.makedirs(dst+'/'+'pos')
+        os.makedirs(dst+'/'+'neg/label')
+        os.makedirs(dst+'/'+'pos/label')
+        os.makedirs(dst+'/'+'neg/img')
+        os.makedirs(dst+'/'+'pos/img')
+
+    except:
+        os.makedirs(dst+'/'+'neg')
+        os.makedirs(dst+'/'+'pos')
+        os.makedirs(dst+'/'+'neg/label')
+        os.makedirs(dst+'/'+'pos/label')
+        os.makedirs(dst+'/'+'neg/img')
+        os.makedirs(dst+'/'+'pos/img')
+        
+                    
+        
+    for i in img_gen:
+        label_img = plt.imread(label_src+'/'+i)
+        img = plt.imread(img_src+'/'+i)
+        if(label_img.max()==0):
+            scipy.misc.imsave(dst+'/'+'neg/label/'+i,label_img)
+            scipy.misc.imsave(dst+'/'+'neg/img/'+i,img)
+        
+        else:
+            scipy.misc.imsave(dst+'/'+'pos/label/'+i,label_img)
+            scipy.misc.imsave(dst+'/'+'pos/img/'+i,img)
+
+def get_256_data(img_src,label_src,label_dst,img_dst):
+    for i in os.listdir(img_src):
+        img = plt.imread(img_src+'/'+i)
+        if(i in os.listdir(label_src) and img.shape[0]==img.shape[1] and img.shape[0]==256):
+            
+
+
+            scipy.misc.imsave(label_dst+'/'+i,
+                             plt.imread(label_src+'/'+i)
+                             )
+
+            scipy.misc.imsave(img_dst+'/'+i,
+                             plt.imread(img_src+'/'+i)
+                             )
+
 
 def split_im(src_img,src_label,dst,split_fraction=0.8):
     
