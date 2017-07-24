@@ -154,7 +154,7 @@ def train_sae(model,epochs):
             
             kl = torch.sum(model.rho*torch.log(model.rho/a) + (1-model.rho)*torch.log((1-model.rho)/(1-a)))
             
-            loss = model.beta*kl + ((torch.norm(out - inp1.view(-1,model.n_in*model.n_in))**2)/(2*model.b_size)) + 0.5*model.lam*(torch.norm(model.state_dict()['fc1.weight']) + torch.norm(model.state_dict()['fc2.weight']))
+            loss = model.beta*kl + ((torch.norm(out - inp1.view(-1,model.n_in*model.n_in))**2)/(2*model.b_size)) + 0.5*model.lam*(torch.norm(model.state_dict()['fc1.weight'])+ torch.norm(model.state_dict()['fc2.weight']))
             
             running_loss+=loss.cpu()
             loss.backward()
@@ -162,7 +162,7 @@ def train_sae(model,epochs):
             del(loss)
             
             del(inp1)
-        #print(running_loss)
+        print(running_loss)
     model=model.cpu()     
     for p in model.modules():
         if isinstance(p,nn.Linear):
@@ -276,12 +276,12 @@ class localnet(nn.Module):
               }
         dset_sizes1 = {'Test':len(dsets1['Test'])}
         
-        with open('~/cached_data/test.p','wb') as f:
+        with open('/home/gam2018/cached_data/test.p','wb') as f:
             
         
             pickle.dump(dset_loaders1,f)    
         
-        with open('~/cached_data/test.p','wb') as f:
+        with open('/home/gam2018/cached_data/test_size.p','wb') as f:
             
             pickle.dump(dset_sizes1,f)    
             
@@ -448,10 +448,10 @@ def test_lnet(model,fname='0',save_dir='0'):
     if(not(fname=='0')):
         model.load_model(fname)
         
-    with open('~/cached_data/test.p', 'rb') as pickle_file:
+    with open('/home/gam2018/cached_data/test.p', 'rb') as pickle_file:
         dataset_loader = pickle.load(pickle_file)
     
-    with open('~/cached_data/test_size.p', 'rb') as pickle_file:
+    with open('/home/gam2018/cached_data/test_size.p', 'rb') as pickle_file:
         dset_size = pickle.load(pickle_file)
     
     model = model.cuda()
@@ -474,7 +474,7 @@ def test_lnet(model,fname='0',save_dir='0'):
                               scipy.misc.imresize(out.data.cpu()[i,:].numpy().reshape(32,32),(256,256)))
             scipy.misc.imsave(save_dir+'/'+str(i)+'_label.png',
                               scipy.misc.imresize(label.data.cpu()[i,:].numpy().reshape(32,32),(256,256)))
-
+        
         #plt.imshow(out.cpu().numpy().reshape(32,32)),plt.show()
         #plt.imshow(label.cpu().numpy().reshape(32,32)),plt.show()
 
@@ -486,7 +486,7 @@ def test_lnet(model,fname='0',save_dir='0'):
     
 
 class StackedAE(nn.Module):
-    def __init__(self,img_path,label_path,gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01,test_train_dst = '/data/gabriel/LVseg/dataset_img/data_seg'):
+    def __init__(self,img_path,label_path,gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01,test_train_dst = '/data/gabriel/LVseg/dataset_img/data_seg',b_size=1000):
         super(StackedAE,self).__init__()
         self.img_path=img_path
         self.label_path=label_path
@@ -500,7 +500,7 @@ class StackedAE(nn.Module):
         self.fc2 = nn.Linear(n_h,n_h)
         self.fc3 = nn.Linear(n_h,n_out*n_out)
         self.test_train_dst = test_train_dst
-    
+        self.b_size=b_size
     def hidden1(self,x):
         x = self.fc1(x)
         x = nn.functional.sigmoid(x)
@@ -560,46 +560,46 @@ class StackedAE(nn.Module):
         for i in os.listdir(dst+'/'+'test_img'):
             count+=1
 
-            temp_im = plt.imread(dst+'/'+i+'.png')
+            temp_im = plt.imread(dst+'/test_img/'+i)
             temp_im-=mean
-            temp_m/=sd
+            temp_im/=sd
 
-            img_test[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64)))
+            img_test[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64))/256.0)
 
-            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'test_label'+'/'+i+'.png'),(64,64))
-            temp_im[temp_im>0]=1
-            label_test[count,:] = torch.Tensor(temp_im).view(4096)
+            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'test_label'+'/'+i),(64,64))
+            temp_im[temp_im>0]=1.0
+            label_test[count,:] = torch.Tensor(temp_im.astype(float)).view(4096)
                 
         dsets1 = {'Test':torch.utils.data.TensorDataset(img_test,label_test)}
 
-        dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets['Test'],batch_size=self.b_size,shuffle=False,num_workers=4)
+        dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets1['Test'],batch_size=self.b_size,shuffle=False,num_workers=4)
               }
         dset_sizes1 = {'Test':len(dsets1['Test'])}
 
-        with open(dst_path+'/test_loader_st.p','wb') as f:
+        with open(dst+'/test_loader_st.p','wb') as f:
             pickle.dump(dset_loaders1 ,f)
 
-        with open(dst_path+'/test_size_st.p','wb') as f:
+        with open(dst+'/test_size_st.p','wb') as f:
             pickle.dump(dset_sizes1 ,f)
 
         
         label_train = torch.zeros(train_l,4096)
-        img_train = torch.zeros(train,1,64,64)
+        img_train = torch.zeros(train_l,1,64,64)
         
         count = -1
         
         for i in os.listdir(dst+'/'+'train_img'):
             count+=1
 
-            temp_im = plt.imread(dst+'/'+i+'.png')
+            temp_im = plt.imread(dst+'/train_img/'+i)
             temp_im-=mean
-            temp_m/=sd
+            temp_im/=sd
 
-            img_train[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64)))
+            img_train[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64))/256.0)
 
-            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'train_label'+'/'+i+'.png'),(64,64))
-            temp_im[temp_im>0]=1
-            label_train[count,:] = torch.Tensor(temp_im).view(4096)
+            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'train_label'+'/'+i),(64,64))
+            temp_im[temp_im>0]=1.0
+            label_train[count,:] = torch.Tensor(temp_im.astype(float)).view(4096)
                 
         dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
         
@@ -608,10 +608,10 @@ class StackedAE(nn.Module):
 
         dset_sizes = {'Training':len(dsets['Training'])}
 
-        with open(dst_path+'/train_loader_st.p','wb') as f:
+        with open(dst+'/train_loader_st.p','wb') as f:
             pickle.dump(dset_loaders1 ,f)
 
-        with open(dst_path+'/train_size_st.p','wb') as f:
+        with open(dst+'/train_size_st.p','wb') as f:
             pickle.dump(dset_sizes1 ,f)
       
         ### TODO maybe use os.listdir to get the made folders ?? or make the folders on the fly based on test_only input
@@ -632,7 +632,7 @@ def train_st_ae(model_st_ae,epochs,cache_dir):
     
     ### train the first weight
     
-    w1,b1 = train_sae(model=sae_1,epochs = 3000)
+    #w1,b1 = train_sae(model=sae_1,epochs = 3000)
     count = 1
     cache = model_st_ae.img_path
     for i in model_st_ae.state_dict().keys():
@@ -651,7 +651,7 @@ def train_st_ae(model_st_ae,epochs,cache_dir):
         
         ###cache hidden layer output as dataset for next pretraining
         
-        
+         
         
         
         #model = model_st_ae.cuda()    
