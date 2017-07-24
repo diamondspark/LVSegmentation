@@ -87,7 +87,7 @@ def split_im(src_img,src_label,dst,split_fraction=0.8):
     img_test_gen = [k for k in os.listdir(src_img) if '.png' in k and k[:-4] in test]
    
     for i in img_train_gen: 
-        print(i)
+        #print(i)
         scipy.misc.imsave(dst+'/'+'train_img/'+i+'.png',plt.imread(src_img+'/'+i))
         scipy.misc.imsave(dst+'/'+'train_label/'+i+'.png',plt.imread(src_label+'/'+i))
     
@@ -97,7 +97,7 @@ def split_im(src_img,src_label,dst,split_fraction=0.8):
             
     return len(img_train_gen),len(img_test_gen)
     
-def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/cropped'):
+def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/dataset_img/cropped'):
     try:
         shutil.rmtree(save_path)
         os.makedirs(save_path)
@@ -183,7 +183,7 @@ def find_stats(path):
     return mean,Ex2
 
 
-def get_patches(data_path,save_path,count = 5*10**4,patch_resize=False,patch_size=64):
+def get_patches(data_path,save_path,count = 5*10**4,patch_resize=True,patch_size=64):
     count1 = 0
 
     #raise NotImplementedError 
@@ -235,8 +235,8 @@ def get_patches(data_path,save_path,count = 5*10**4,patch_resize=False,patch_siz
         
         #print(i)
         #print(R,C)
-        if(i==0):
-            print(im_list1[i].max()) 
+        #if(i==0):
+            #print(im_list1[i].max()) 
         
         im_max =im_list1[i].max()/255 
         while(im_list1[i][R-11:R,C-11:C].mean()<im_max):
