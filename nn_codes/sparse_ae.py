@@ -10,6 +10,7 @@ import scipy.misc
 import random
 import numpy as np
 import simplejson
+import shutil
 import torchvision
 import pickle
 from utils import find_stats,get_patches,split_im,get_series
@@ -73,14 +74,27 @@ class SAE(nn.Module):
         
         mean,sd = find_stats(self.img_path)
         
+        
+        
         for i in train_series:
             count+=1
-            temp_im = plt.imread(self.img_path+'/'+i+'.png')
-            temp_im.reshape(1,dim[0],dim[1])
             
-            img_train[count,:,:,:] = torch.Tensor(temp_im)
+            if(not(dim[0]==self.n_in)):
+                temp_im2 = plt.imread(self.img_path+'/'+i+'.png')
+                temp_im2 -= mean
+                temp_im2 /= sd
+                temp_im = scipy.misc.imresize(temp_im2,(self.n_in,self.n_in)).astype(float)
             
-            img_train[count,:,:,:].sub(mean).div(sd)
+            else:
+                temp_im-=mean
+                temp_im /=sd
+                temp_im = plt.imread(self.img_path+'/'+i+'.png').astype(float)
+                
+            temp_im.reshape(1,self.n_in,self.n_in)
+            
+            img_train[count,:,:,:] = torch.Tensor(temp_im)/255.0
+            
+            #img_train[count,:,:,:].sub(mean).div(sd)
             
             if not(self.label_path ==0):
                 label_train[count,:] = torch.Tensor(scipy.misc.imresize(plt.imread(self.label_path+'/'+i+'.png')))
@@ -92,7 +106,7 @@ class SAE(nn.Module):
         
         for i,j,k in os.walk(self.img_path):
             if '.ipynb_checkpoints' in i:
-                print(i)
+                #print(i)
                 shutil.rmtree(i)
         
         
@@ -154,7 +168,7 @@ def train_sae(model,epochs):
             
             kl = torch.sum(model.rho*torch.log(model.rho/a) + (1-model.rho)*torch.log((1-model.rho)/(1-a)))
             
-            loss = model.beta*kl + ((torch.norm(out - inp1.view(-1,model.n_in*model.n_in))**2)/(2*model.b_size)) + 0.5*model.lam*(torch.norm(model.state_dict()['fc1.weight']) + torch.norm(model.state_dict()['fc2.weight']))
+            loss = model.beta*kl + ((torch.norm(out - inp1.view(-1,model.n_in*model.n_in))**2)/(2*model.b_size)) + 0.5*model.lam*(torch.norm(model.state_dict()['fc1.weight'])+ torch.norm(model.state_dict()['fc2.weight']))
             
             running_loss+=loss.cpu()
             loss.backward()
@@ -162,7 +176,7 @@ def train_sae(model,epochs):
             del(loss)
             
             del(inp1)
-        #print(running_loss)
+        print(running_loss)
     model=model.cpu()     
     for p in model.modules():
         if isinstance(p,nn.Linear):
@@ -276,12 +290,12 @@ class localnet(nn.Module):
               }
         dset_sizes1 = {'Test':len(dsets1['Test'])}
         
-        with open('~/cached_data/test.p','wb') as f:
+        with open('/home/gam2018/cached_data/test.p','wb') as f:
             
         
             pickle.dump(dset_loaders1,f)    
         
-        with open('~/cached_data/test.p','wb') as f:
+        with open('/home/gam2018/cached_data/test_size.p','wb') as f:
             
             pickle.dump(dset_sizes1,f)    
             
@@ -448,10 +462,10 @@ def test_lnet(model,fname='0',save_dir='0'):
     if(not(fname=='0')):
         model.load_model(fname)
         
-    with open('~/cached_data/test.p', 'rb') as pickle_file:
+    with open('/home/gam2018/cached_data/test.p', 'rb') as pickle_file:
         dataset_loader = pickle.load(pickle_file)
     
-    with open('~/cached_data/test_size.p', 'rb') as pickle_file:
+    with open('/home/gam2018/cached_data/test_size.p', 'rb') as pickle_file:
         dset_size = pickle.load(pickle_file)
     
     model = model.cuda()
@@ -474,7 +488,7 @@ def test_lnet(model,fname='0',save_dir='0'):
                               scipy.misc.imresize(out.data.cpu()[i,:].numpy().reshape(32,32),(256,256)))
             scipy.misc.imsave(save_dir+'/'+str(i)+'_label.png',
                               scipy.misc.imresize(label.data.cpu()[i,:].numpy().reshape(32,32),(256,256)))
-
+        
         #plt.imshow(out.cpu().numpy().reshape(32,32)),plt.show()
         #plt.imshow(label.cpu().numpy().reshape(32,32)),plt.show()
 
@@ -486,7 +500,7 @@ def test_lnet(model,fname='0',save_dir='0'):
     
 
 class StackedAE(nn.Module):
-    def __init__(self,img_path,label_path,gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01,test_train_dst = '/data/gabriel/LVseg/dataset_img/data_seg'):
+    def __init__(self,img_path,label_path,gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01,test_train_dst = '/data/gabriel/LVseg/dataset_img/data_seg',b_size=1000):
         super(StackedAE,self).__init__()
         self.img_path=img_path
         self.label_path=label_path
@@ -500,7 +514,7 @@ class StackedAE(nn.Module):
         self.fc2 = nn.Linear(n_h,n_h)
         self.fc3 = nn.Linear(n_h,n_out*n_out)
         self.test_train_dst = test_train_dst
-    
+        self.b_size=b_size
     def hidden1(self,x):
         x = self.fc1(x)
         x = nn.functional.sigmoid(x)
@@ -560,46 +574,46 @@ class StackedAE(nn.Module):
         for i in os.listdir(dst+'/'+'test_img'):
             count+=1
 
-            temp_im = plt.imread(dst+'/'+i+'.png')
+            temp_im = plt.imread(dst+'/test_img/'+i)
             temp_im-=mean
-            temp_m/=sd
+            temp_im/=sd
 
-            img_test[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64)))
+            img_test[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64))/256.0)
 
-            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'test_label'+'/'+i+'.png'),(64,64))
-            temp_im[temp_im>0]=1
-            label_test[count,:] = torch.Tensor(temp_im).view(4096)
+            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'test_label'+'/'+i),(64,64))
+            temp_im[temp_im>0]=1.0
+            label_test[count,:] = torch.Tensor(temp_im.astype(float)).view(4096)
                 
         dsets1 = {'Test':torch.utils.data.TensorDataset(img_test,label_test)}
 
-        dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets['Test'],batch_size=self.b_size,shuffle=False,num_workers=4)
+        dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets1['Test'],batch_size=self.b_size,shuffle=False,num_workers=4)
               }
         dset_sizes1 = {'Test':len(dsets1['Test'])}
 
-        with open(dst_path+'/test_loader_st.p','wb') as f:
+        with open(dst+'/test_loader_st.p','wb') as f:
             pickle.dump(dset_loaders1 ,f)
 
-        with open(dst_path+'/test_size_st.p','wb') as f:
+        with open(dst+'/test_size_st.p','wb') as f:
             pickle.dump(dset_sizes1 ,f)
 
         
         label_train = torch.zeros(train_l,4096)
-        img_train = torch.zeros(train,1,64,64)
+        img_train = torch.zeros(train_l,1,64,64)
         
         count = -1
         
         for i in os.listdir(dst+'/'+'train_img'):
             count+=1
 
-            temp_im = plt.imread(dst+'/'+i+'.png')
+            temp_im = plt.imread(dst+'/train_img/'+i)
             temp_im-=mean
-            temp_m/=sd
+            temp_im/=sd
 
-            img_train[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64)))
+            img_train[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64))/256.0)
 
-            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'train_label'+'/'+i+'.png'),(64,64))
-            temp_im[temp_im>0]=1
-            label_train[count,:] = torch.Tensor(temp_im).view(4096)
+            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'train_label'+'/'+i),(64,64))
+            temp_im[temp_im>0]=1.0
+            label_train[count,:] = torch.Tensor(temp_im.astype(float)).view(4096)
                 
         dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
         
@@ -608,10 +622,10 @@ class StackedAE(nn.Module):
 
         dset_sizes = {'Training':len(dsets['Training'])}
 
-        with open(dst_path+'/train_loader_st.p','wb') as f:
+        with open(dst+'/train_loader_st.p','wb') as f:
             pickle.dump(dset_loaders1 ,f)
 
-        with open(dst_path+'/train_size_st.p','wb') as f:
+        with open(dst+'/train_size_st.p','wb') as f:
             pickle.dump(dset_sizes1 ,f)
       
         ### TODO maybe use os.listdir to get the made folders ?? or make the folders on the fly based on test_only input
@@ -632,30 +646,75 @@ def train_st_ae(model_st_ae,epochs,cache_dir):
     
     ### train the first weight
     
-    w1,b1 = train_sae(model=sae_1,epochs = 3000)
+    #w1,b1 = train_sae(model=sae_1,epochs = 3000)
     count = 1
     cache = model_st_ae.img_path
-    for i in model_st_ae.state_dict().keys():
-        sae_1 = SAE(n_in=64,n_h=100,n_out=64,img_path=cache,b_size = 1000, patch_size = 0,lr=0.001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
+    while(count<=3):
+        print(count)
+        try:
+            #print('here')
+            shutil.rmtree(cache_dir+'/res_at_'+str(count))
+            #print('here2')
+            shutil.rmtree(cache_dir+'/resin_at_'+str(count))
+            os.makedirs(cache_dir+'/'+'res_at_'+str(count))
+            os.makedirs(cache_dir+'/'+'resin_at_'+str(count))
+        except:
+            os.makedirs(cache_dir+'/'+'res_at_'+str(count))
+            os.makedirs(cache_dir+'/'+'resin_at_'+str(count))
+
+        if(count==3):
+            sae_1 = SAE(n_in=64,n_h=100,n_out=64,img_path=model_st_ae.label_path,b_size = 1000, patch_size = 0,lr=0.001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
+        else:
+            sae_1 = SAE(n_in=64,n_h=100,n_out=64,img_path=cache,b_size = 1000, patch_size = 0,lr=0.001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
         
-        l_count = 1
+            l_count = 1
         
-        w1,b1 = train_sae(model=sae_1,epochs = 3000)
-        
-        for j in model_st_ae.modules():
-            if isinstance(j,nn.Linear) and l_count == count:
-                j.weight.data,j.bias.data = w1,b1
-                break
-            elif(isinstance(j,nn.Linear) and l_count <count):
-                l_count+=1
-        
-        ###cache hidden layer output as dataset for next pretraining
-        
-        
-        
-        
+            w1,b1 = train_sae(model=sae_1,epochs = 3)
+
+            for j in model_st_ae.modules():
+                if isinstance(j,nn.Linear) and l_count == count:
+                    j.weight.data,j.bias.data = w1,b1
+                    break
+                elif(isinstance(j,nn.Linear) and l_count <count):
+                    l_count+=1
+
+            ###cache hidden layer output as dataset for next pretraining
+            temp_model = model_st_ae
+            temp_model.cuda()
+
+
+            b_count=-1
+            for temp_inp in dataset_loader['Training']:
+                inp,_ = temp_inp
+                b_count+=1
+                inp = Variable(inp.cuda())
+                out = temp_model.out_at_layer(inp.view(-1,sae_1.n_in*sae_1.n_in),L=count)
+
+                out = out.cpu().data.numpy()
+                inp = inp.cpu().data.numpy()
+
+                for i in range(0,out.shape[0]):
+                    #print(np.sqrt(sae_1.n_h))
+                    scipy.misc.imsave(cache_dir+'/'+'res_at_'+str(count)+'/'+'out_at_l'+str(count)+'_' +str(b_count)+'.png',out[int(i),:].reshape(int(np.sqrt(sae_1.n_h)),int(np.sqrt(sae_1.n_h))))    
+                    scipy.misc.imsave(cache_dir+'/'+'resin_at_'+str(count)+'/'+'in_at_l'+str(count)+'_' +str(b_count)+'.png',inp[int(i),:].reshape(int(sae_1.n_in),int(sae_1.n_in)))
+                #print(out.shape)
+
+            cache = cache_dir+'/'+'res_at_'+str(count)+'/'
+
+
+
+            count+=1
+            
+            #return
+            #scipy.misc.imsave(cache_dir+'/'+'res_at_'+str(count)+'/'+'out_at_l'+str(count)+'_' +str(b_count),out.cpu().data.numpy().reshape(np.sqrt(sae_1.n_h),np.sqrt(sae_1.n_h)))
+            #scipy.misc.imsave(cache_dir+'/'+'res_at_'+str(count)+'/'+'in_at_l'+str(count)+'_' +str(b_count),inp.cpu().data.numpy().reshape(np.sqrt(sae_1.n_h),np.sqrt(sae_1.n_h)))
+            
+            
+            del temp_model
+                
+            
         #model = model_st_ae.cuda()    
-        
+    return    
     
     
 def test_st_ae(model,fname='0',save_dir='0'):
