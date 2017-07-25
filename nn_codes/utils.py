@@ -163,7 +163,6 @@ def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/dataset_img/crop
             scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
             scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
 
-
         
         
 def get_box(label_path): 

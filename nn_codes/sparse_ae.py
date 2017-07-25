@@ -492,6 +492,17 @@ def test_lnet(model,fname='0',save_dir='0'):
         #plt.imshow(out.cpu().numpy().reshape(32,32)),plt.show()
         #plt.imshow(label.cpu().numpy().reshape(32,32)),plt.show()
 
+            temp_im = plt.imread(dst+'/train_img/'+i)
+            temp_im-=mean
+            temp_im/=sd
+
+            img_train[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64))/256.0)
+
+            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'train_label'+'/'+i),(64,64))
+            temp_im[temp_im>0]=1.0
+            label_train[count,:] = torch.Tensor(temp_im.astype(float)).view(4096)
+                
+        dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
         
         del(inp1)
 
@@ -543,6 +554,7 @@ class StackedAE(nn.Module):
             except:
                 continue
     
+    ### train the first weight
     
     def forward(self,x):
         x = x.view(-1,self.n_in*self.n_in)
