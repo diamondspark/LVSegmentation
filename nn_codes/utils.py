@@ -87,7 +87,7 @@ def split_im(src_img,src_label,dst,split_fraction=0.8):
     img_test_gen = [k for k in os.listdir(src_img) if '.png' in k and k[:-4] in test]
    
     for i in img_train_gen: 
-        print(i)
+        #print(i)
         scipy.misc.imsave(dst+'/'+'train_img/'+i+'.png',plt.imread(src_img+'/'+i))
         scipy.misc.imsave(dst+'/'+'train_label/'+i+'.png',plt.imread(src_label+'/'+i))
     
@@ -97,7 +97,7 @@ def split_im(src_img,src_label,dst,split_fraction=0.8):
             
     return len(img_train_gen),len(img_test_gen)
     
-def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/cropped'):
+def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/dataset_img/cropped',few_images=False):
     try:
         shutil.rmtree(save_path)
         os.makedirs(save_path)
@@ -111,15 +111,26 @@ def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/cropped'):
         os.makedirs(save_path+'/'+'neg_img')
         os.makedirs(save_path+'/'+'label')
         os.makedirs(save_path+'/'+'neg_label')
+    
+    if(few_images):
+        num_images = 3
+    counter=0
         
     label_name_gen = (i for i in os.listdir(label_path) if '.png' in i)
     zero = np.zeros((100,100))
     for i in label_name_gen:
-    
-        img = plt.imread(img_path+'/'+i)
-        label = plt.imread(label_path+'/'+i)
-        
-        
+        if (few_images):
+            
+            print(i)
+            print(i[:i.find('_img')])
+            img = plt.imread(img_path+'/'+i[:2]+'_img.png')
+            label = plt.imread(label_path+'/'+i[:2]+'_test.png')
+           
+        else:
+            img = plt.imread(img_path+'/'+i)
+            label = plt.imread(label_path+'/'+i)
+
+
         
         if((label**2).sum()==0):
             scipy.misc.imsave(save_path+'/'+'neg_label'+'/'+i,zero)
@@ -127,11 +138,19 @@ def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/cropped'):
             
         else:
             
+            if(few_images and counter < num_images):
+                mean_pos = np.mean(np.where(label>0),axis=1).astype(int)
+                counter+=1
+                scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+                scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+            elif(few_images and counter == num_images):
+                break
+            
+            else:
+                mean_pos = np.mean(np.where(label>0),axis=1).astype(int)
 
-            mean_pos = np.mean(np.where(label>0),axis=1).astype(int)
-
-            scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
-            scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+                scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+                scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
 
         
         
@@ -183,7 +202,7 @@ def find_stats(path):
     return mean,Ex2
 
 
-def get_patches(data_path,save_path,count = 5*10**4,patch_resize=False,patch_size=64):
+def get_patches(data_path,save_path,count = 5*10**4,patch_resize=True,patch_size=64):
     count1 = 0
 
     #raise NotImplementedError 
@@ -235,8 +254,8 @@ def get_patches(data_path,save_path,count = 5*10**4,patch_resize=False,patch_siz
         
         #print(i)
         #print(R,C)
-        if(i==0):
-            print(im_list1[i].max()) 
+        #if(i==0):
+            #print(im_list1[i].max()) 
         
         im_max =im_list1[i].max()/255 
         while(im_list1[i][R-11:R,C-11:C].mean()<im_max):

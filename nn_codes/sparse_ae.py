@@ -64,12 +64,12 @@ class SAE(nn.Module):
         else:
             train_series,test_series = get_series(self.img_path,self.test_fraction)
  
-        dim = plt.imread(self.img_path+'/'+train_series[0]+'.png').shape
+        temp_im= plt.imread(self.img_path+'/'+train_series[0]+'.png')
         
         label_train = torch.zeros(len(train_series),self.n_out*self.n_out)
         img_train = torch.zeros(len(train_series),1,self.n_in,self.n_in)
         
-        
+        dim = temp_im.shape
         count = -1
         
         mean,sd = find_stats(self.img_path)
@@ -644,13 +644,23 @@ def train_st_ae(model_st_ae,epochs,cache_dir):
     #model = model_st_ae.cuda()
     loss_arr = []
     
+    w_mat = np.array([[model_st_ae.state_dict()['fc'+str(i)+'.weight'].size()[0],model_st_ae.state_dict()['fc'+str(i)+'.weight'].size()[1]] for i in range(1,4)])
+    
+    n_in_all = np.sqrt(w_mat[:,1]).astype(int)
+    n_h_all = w_mat[:,0].astype(int)
     ### train the first weight
     
     #w1,b1 = train_sae(model=sae_1,epochs = 3000)
     count = 1
-    cache = model_st_ae.img_path
+    cache = model_st_ae.test_train_dst+'/'+'train_img'
+    
+    dataset_loader_sae,dataset_size_sae = dataset_loader,data_size
+    
     while(count<=3):
         print(count)
+        
+        ### Pretraining part
+        
         try:
             #print('here')
             shutil.rmtree(cache_dir+'/res_at_'+str(count))
@@ -663,10 +673,63 @@ def train_st_ae(model_st_ae,epochs,cache_dir):
             os.makedirs(cache_dir+'/'+'resin_at_'+str(count))
 
         if(count==3):
-            sae_1 = SAE(n_in=64,n_h=100,n_out=64,img_path=model_st_ae.label_path,b_size = 1000, patch_size = 0,lr=0.001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
+            
+            pre_trained_st = model_st_ae
+            pre_trained_st.cuda()
+            
+            counter1 = 0
+            pre_trained_st.train()
+            for name,module in pre_trained_st.named_children():
+                
+                if(name=='fc3'):
+                    module.requires_grad=False
+            optim_pretrain = optim.Adam(pre_trained_st.parameters(),lr = 0.001)
+            
+            for pre_train_epochs in range(0,3):
+                for i in dataset_loader['Training']:
+                    inp,label = i
+                    inp,label = Variable(inp.cuda()),Variable(label.cuda())
+                    #plt.imshow(label.cpu().data.numpy()[0,:].reshape(model_st_ae.n_in,model_st_ae.n_in)),plt.show()
+                    #plt.imshow(inp.cpu().data.numpy()[0,:,:,:].reshape(model_st_ae.n_in,model_st_ae.n_in)),plt.show()
+                    out = pre_trained_st(inp)
+                    #plt.imshow(out.cpu().data.numpy()[0,:].reshape(model_st_ae.n_in,model_st_ae.n_in)),plt.show()
+                    
+                    optim_pretrain.zero_grad()
+                    L = torch.norm(label-out)**2 + (10**-4)*torch.norm(pre_trained_st.state_dict()['fc3.weight'])**2
+                    L.backward()
+                    optim_pretrain.step()
+                    
+            for i in dataset_loader['Training']:
+                inp,_ = i
+                
+                inp = Variable(inp.cuda())
+                #plt.imshow(inp.cpu().data.numpy()[0].reshape(64,64)),plt.show()
+                
+                out_at_1 = pre_trained_st.out_at_layer(inp.view(-1,inp.size()[2]**2),1)
+                out_at_2 = pre_trained_st.out_at_layer(out_at_1,2)
+                
+                
+                out_at_2 = out_at_2.cpu().data.numpy()
+                
+                out_temp = pre_trained_st(inp).cpu().data.numpy()
+                print(out_temp.shape)
+                print(out_at_2.shape)
+                for j in range(0,out_temp.shape[0]):
+                    scipy.misc.imsave('/data/gabriel/LVseg/segment_out/res_at_3/'+str(j)+'_'+str(i)+'.png',
+                                      out_temp[j,:].reshape(np.sqrt(out_temp[j,:].shape[1]),np.sqrt(out_temp[j,:].shape[1]))
+                                     )
+                    scipy.misc.imsave('/data/gabriel/LVseg/segment_out/resin_at_3/'+str(j)+'_'+str(i)+'.png',
+                                      out_at_2[j,:].reshape(np.sqrt(out_at_2[j,:].shape[1]),np.sqrt(out_at_2[j,:].shape[1]))
+                                     )
+
+            
         else:
-            sae_1 = SAE(n_in=64,n_h=100,n_out=64,img_path=cache,b_size = 1000, patch_size = 0,lr=0.001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
-        
+            
+            
+            sae_1 = SAE(n_in=n_in_all[count-1],n_h=n_h_all[count-1],n_out=n_in_all[count-1],img_path=cache,b_size = 2000, patch_size = 0,lr=0.001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
+            
+            dataset_loader_sae,dataset_size_sae = sae_1.transform() 
+            
             l_count = 1
         
             w1,b1 = train_sae(model=sae_1,epochs = 3)
@@ -684,33 +747,35 @@ def train_st_ae(model_st_ae,epochs,cache_dir):
 
 
             b_count=-1
-            for temp_inp in dataset_loader['Training']:
+            for temp_inp in dataset_loader_sae['Training']:
                 inp,_ = temp_inp
                 b_count+=1
                 inp = Variable(inp.cuda())
-                out = temp_model.out_at_layer(inp.view(-1,sae_1.n_in*sae_1.n_in),L=count)
+                print(inp.size())
+                print(sae_1.n_in**2)
+                out = temp_model.out_at_layer(inp.view(inp.size()[0],sae_1.n_in**2),L=count)
 
                 out = out.cpu().data.numpy()
                 inp = inp.cpu().data.numpy()
 
                 for i in range(0,out.shape[0]):
                     #print(np.sqrt(sae_1.n_h))
-                    scipy.misc.imsave(cache_dir+'/'+'res_at_'+str(count)+'/'+'out_at_l'+str(count)+'_' +str(b_count)+'.png',out[int(i),:].reshape(int(np.sqrt(sae_1.n_h)),int(np.sqrt(sae_1.n_h))))    
-                    scipy.misc.imsave(cache_dir+'/'+'resin_at_'+str(count)+'/'+'in_at_l'+str(count)+'_' +str(b_count)+'.png',inp[int(i),:].reshape(int(sae_1.n_in),int(sae_1.n_in)))
+                    scipy.misc.imsave(cache_dir+'/'+'res_at_'+str(count)+'/'+'out_at_l'+str(count)+'_' +str(b_count)+'_'+str(i)+'.png',out[int(i),:].reshape(int(np.sqrt(sae_1.n_h)),int(np.sqrt(sae_1.n_h))))    
+                    scipy.misc.imsave(cache_dir+'/'+'resin_at_'+str(count)+'/'+'in_at_l'+str(count)+'_' +str(b_count)+'_'+str(i)+'.png',inp[int(i),:].reshape(int(sae_1.n_in),int(sae_1.n_in)))
                 #print(out.shape)
 
             cache = cache_dir+'/'+'res_at_'+str(count)+'/'
 
+            del temp_model
+        
 
-
-            count+=1
+        count+=1
             
             #return
             #scipy.misc.imsave(cache_dir+'/'+'res_at_'+str(count)+'/'+'out_at_l'+str(count)+'_' +str(b_count),out.cpu().data.numpy().reshape(np.sqrt(sae_1.n_h),np.sqrt(sae_1.n_h)))
             #scipy.misc.imsave(cache_dir+'/'+'res_at_'+str(count)+'/'+'in_at_l'+str(count)+'_' +str(b_count),inp.cpu().data.numpy().reshape(np.sqrt(sae_1.n_h),np.sqrt(sae_1.n_h)))
             
             
-            del temp_model
                 
             
         #model = model_st_ae.cuda()    
