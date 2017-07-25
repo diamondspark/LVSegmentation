@@ -131,6 +131,11 @@ def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/dataset_img/crop
             label = plt.imread(label_path+'/'+i)
 
 
+    
+        img = plt.imread(img_path+'/'+i)
+        label = plt.imread(label_path+'/'+i)
+        
+        
         
         if((label**2).sum()==0):
             scipy.misc.imsave(save_path+'/'+'neg_label'+'/'+i,zero)
@@ -138,6 +143,7 @@ def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/dataset_img/crop
             
         else:
             
+
             if(few_images and counter < num_images):
                 mean_pos = np.mean(np.where(label>0),axis=1).astype(int)
                 counter+=1
@@ -151,6 +157,12 @@ def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/dataset_img/crop
 
                 scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
                 scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+
+            mean_pos = np.mean(np.where(label>0),axis=1).astype(int)
+
+            scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+            scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+
 
         
         

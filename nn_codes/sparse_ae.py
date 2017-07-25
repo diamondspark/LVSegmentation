@@ -716,10 +716,10 @@ def train_st_ae(model_st_ae,epochs,cache_dir):
                 print(out_at_2.shape)
                 for j in range(0,out_temp.shape[0]):
                     scipy.misc.imsave('/data/gabriel/LVseg/segment_out/res_at_3/'+str(j)+'_'+str(i)+'.png',
-                                      out_temp[j,:].reshape(np.sqrt(out_temp[j,:].shape[1]),np.sqrt(out_temp[j,:].shape[1]))
+                                      out_temp[j,:].reshape(np.sqrt(out_temp[j,:].shape[1])//1,np.sqrt(out_temp[j,:].shape[1]//1))
                                      )
                     scipy.misc.imsave('/data/gabriel/LVseg/segment_out/resin_at_3/'+str(j)+'_'+str(i)+'.png',
-                                      out_at_2[j,:].reshape(np.sqrt(out_at_2[j,:].shape[1]),np.sqrt(out_at_2[j,:].shape[1]))
+                                      out_at_2[j,:].reshape(np.sqrt(out_at_2[j,:].shape[1])//1,np.sqrt(out_at_2[j,:].shape[1]//1))
                                      )
 
             
