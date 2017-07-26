@@ -15,6 +15,63 @@ def compare_result(box_path,label_path,img_path):
         if('.png' in i):
             img = plt.imread()
 '''
+
+
+
+
+class isbound():    
+    def __init__(self,img_src):
+        self.img_src = img_src
+        self.img = plt.imread(img_src)
+        self.up = [0,0]
+        self.down = [0,0]
+        self.left= [0,0]
+        self.right = [0,0]
+        
+    def get_ext(self):
+        min_r = np.inf
+        min_c = np.inf
+        max_r = 0
+        max_c = 0
+        list_black=[]
+        for r in range(0,self.img.shape[0]):
+            for c in range(0,self.img.shape[1]):
+                if(self.img[r,c]>0):
+                    
+                    if(r<=min_r):
+                        min_r = r
+                        top = [min_r,c]
+                    
+                    if(c<=min_c):
+                        min_c = c
+                        left = [r,min_c]
+                        
+                    if(r>=max_r):
+                        max_r = r
+                        bottom = [max_r,c]
+                        
+                    if(c>=max_c):
+                        max_c =c
+                        right = [r,max_c]
+                else:
+                    list_black.append([r,c])
+                    
+        return np.array(list_coord),top,bottom,left,right
+    
+    def run_check_bound():
+        
+        coord_list,up,down,lef,rig = self.get_ext()
+        
+        return self.check_bound(coord_list,up,down,lef,rig)
+    
+    def check_bound(self,list_coord,u,d,l,r):
+        
+        r,c= np.mean(list_coord[:,0]),np.mean(list_coord[:,1])
+        
+        if( self.img[r+1,c+1] == 0 ):
+            self.check_bound()
+    
+    
 def split_neg(label_src,img_src,dst):
     img_gen = (i for i in os.listdir(label_src) if '.png' in i)
     
