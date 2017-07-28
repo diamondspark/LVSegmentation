@@ -8,6 +8,7 @@ import numpy as np
 import os
 import random
 import scipy.misc
+import cv2
 
 '''
 def compare_result(box_path,label_path,img_path):
@@ -16,62 +17,112 @@ def compare_result(box_path,label_path,img_path):
             img = plt.imread()
 '''
 
+def get_annot():
+    labels = ['val_label','online_label','train_label']
+    imgs = ['tr','on','val']
+    for l in labels:
+        
+        for i in os.listdir('/data/gabriel/LVseg/MICCAI/'+l):
+            for im in imgs:
+                for j in os.listdir('/data/gabriel/LVseg/MICCAI/'+im):
+                    for k in os.listdir('/data/gabriel/LVseg/MICCAI/'+l):
+                        anno_img('/data/gabriel/LVseg/MICCAI/'+l+'/'+k,'/data/gabriel/LVseg/MICCAI/'+im)
+                    
+        
+def anno_img(anno_src,img_src,dst = '/data/gabriel/LVseg/MICCAI/anno'):
+    
+    #print(img_src)
+    
+    img_list = [i[:i.find('.png')] for i in os.listdir(img_src+'/image/') if '.png' in i]
+    #print(img_list[0])
+    for i in os.listdir(anno_src):
+        #print(i[:12])
+        if(i[:12] in img_list):
+            #print('here')
+            img = plt.imread(img_src+'/image/'+i[:12]+'.png')
+            anno = np.zeros_like(img)
+            anno_arr = np.genfromtxt(anno_src+'/'+i)
+            
+            anno[anno_arr.astype(int)] = 1
+            #plt.imshow(anno),plt.show()
+            if('tr' in anno_src and 'tr' in img_src):
+                scipy.misc.imsave(dst+'/tr/'+i[:12]+'.png',anno)
+                
+            elif('val' in anno_src and 'val' in img_src):
+                scipy.misc.imsave(dst+'/val/'+i[:12]+'.png',anno)
+                
+            elif('on' in anno_src and 'on' in img_src):
+                scipy.misc.imsave(dst+'/on/'+i[:12]+'.png',anno)
+                
+            
+def get_contour(label_src='/data/gabriel/LVseg/dataset_img/cropped/label/',
+                img_src='/data/gabriel/LVseg/dataset_img/cropped/img/',
+                dst='/data/gabriel/LVseg/dataset_img/cropped/contour',
+                dst1='/data/gabriel/LVseg/dataset_img/cropped/not_contour'):
+    try:
+        shutil.rmtree(dst)
+        os.makedirs(dst)
+        os.makedirs(dst+'/'+'label')
+        os.makedirs(dst+'/'+'img')
+        shutil.rmtree(dst1)
+        os.makedirs(dst1)
+        os.makedirs(dst1+'/'+'label')
+        os.makedirs(dst1+'/'+'img')
+
+    except:
+        os.makedirs(dst)
+        os.makedirs(dst+'/'+'img')
+        os.makedirs(dst+'/'+'label')
+        os.makedirs(dst1)
+        os.makedirs(dst1+'/'+'img')
+        os.makedirs(dst1+'/'+'label')
+
+    for i in os.listdir(label_src):
+        img = plt.imread(label_src+'/'+i)
+        img2 = cv2.imread(label_src+'/'+i,0)
+        im,cc,hi= cv2.findContours(img2.copy(),cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+        count=0
+        res = []
+        #plt.imshow(img2),plt.show()
+        #for c in cc:
+        #    res.append(cv2.isContourConvex(c))
+        #print(res)
+        
+        
+        if(len(cc)==2 and len(cc[0])/len(cc[1]) > 0.7 ):
+            scipy.misc.imsave(dst+'/img/'+i,plt.imread(img_src+'/'+i))
+            scipy.misc.imsave(dst+'/label/'+i,img)
+            #print()
+        elif(len(cc)==1 ):
+            #plt.imshow(img),plt.show()
+            #print(cc)
+            M = cv2.moments(cc[0])
+            #if(M['m00']==0):
+            #    plt.imshow(img),plt.show()
+                
+            if(M['m00'] ==0):
+                scipy.misc.imsave(dst+'/img/'+i,plt.imread(img_src+'/'+i))
+                scipy.misc.imsave(dst+'/label/'+i,img)
+            else:
+                
+                mean_r = int(M['m10']/(M['m00']))
+                mean_c = int(M['m01']/(M['m00']-1))
+                #print(cc[0])
+                #return
+                #print(mean_r,mean_c)
 
 
+                if(img2[mean_r,mean_c]):
+                    scipy.misc.imsave(dst+'/img/'+i,plt.imread(img_src+'/'+i))
+                    scipy.misc.imsave(dst+'/label/'+i,img)
+                    #print('here')
 
-class isbound():    
-    def __init__(self,img_src):
-        self.img_src = img_src
-        self.img = plt.imread(img_src)
-        self.up = [0,0]
-        self.down = [0,0]
-        self.left= [0,0]
-        self.right = [0,0]
-        
-    def get_ext(self):
-        min_r = np.inf
-        min_c = np.inf
-        max_r = 0
-        max_c = 0
-        list_black=[]
-        for r in range(0,self.img.shape[0]):
-            for c in range(0,self.img.shape[1]):
-                if(self.img[r,c]>0):
-                    
-                    if(r<=min_r):
-                        min_r = r
-                        top = [min_r,c]
-                    
-                    if(c<=min_c):
-                        min_c = c
-                        left = [r,min_c]
-                        
-                    if(r>=max_r):
-                        max_r = r
-                        bottom = [max_r,c]
-                        
-                    if(c>=max_c):
-                        max_c =c
-                        right = [r,max_c]
-                else:
-                    list_black.append([r,c])
-                    
-        return np.array(list_coord),top,bottom,left,right
-    
-    def run_check_bound():
-        
-        coord_list,up,down,lef,rig = self.get_ext()
-        
-        return self.check_bound(coord_list,up,down,lef,rig)
-    
-    def check_bound(self,list_coord,u,d,l,r):
-        
-        r,c= np.mean(list_coord[:,0]),np.mean(list_coord[:,1])
-        
-        if( self.img[r+1,c+1] == 0 ):
-            self.check_bound()
-    
-    
+        else:
+            scipy.misc.imsave(dst1+'/img/'+i,plt.imread(img_src+'/'+i))
+            scipy.misc.imsave(dst1+'/label/'+i,img2)
+            
+            
+            
 def split_neg(label_src,img_src,dst):
     img_gen = (i for i in os.listdir(label_src) if '.png' in i)
     
@@ -122,25 +173,30 @@ def get_256_data(img_src,label_src,label_dst,img_dst):
                              )
 
 
-def split_im(src_img,src_label,dst,split_fraction=0.8):
+def split_im(src_img,src_label,dst,split_fraction=0.7):
     
-    train,test = get_series(label_path = src_label,test_fraction = 1-split_fraction)
+    train,val,test = get_series(label_path = src_label,test_fraction = 1-split_fraction)
     
     try:
         shutil.rmtree(dst)
         os.makedirs(dst)
+        os.makedirs(dst+'/'+'val_label')
+        os.makedirs(dst+'/'+'val_img')
         os.makedirs(dst+'/'+'train_label')
         os.makedirs(dst+'/'+'test_img')
         os.makedirs(dst+'/'+'train_img')
         os.makedirs(dst+'/'+'test_label')
-    except:    
+    except:
         os.makedirs(dst)
+        os.makedirs(dst+'/'+'val_label')
+        os.makedirs(dst+'/'+'val_img')
         os.makedirs(dst+'/'+'train_label')
         os.makedirs(dst+'/'+'test_img')
         os.makedirs(dst+'/'+'train_img')
         os.makedirs(dst+'/'+'test_label')
 
     img_train_gen = [k for k in os.listdir(src_img) if '.png' in k and k[:-4] in train]
+    img_val_gen = [k for k in os.listdir(src_img) if '.png' in k and k[:-4] in val]
     img_test_gen = [k for k in os.listdir(src_img) if '.png' in k and k[:-4] in test]
    
     for i in img_train_gen: 
@@ -151,7 +207,12 @@ def split_im(src_img,src_label,dst,split_fraction=0.8):
     for i in img_test_gen:
         scipy.misc.imsave(dst+'/'+'test_img/'+i+'.png',plt.imread(src_img+'/'+i))
         scipy.misc.imsave(dst+'/'+'test_label/'+i+'.png',plt.imread(src_label+'/'+i))
-            
+
+    for i in img_val_gen:
+        scipy.misc.imsave(dst+'/'+'val_img/'+i+'.png',plt.imread(src_img+'/'+i))
+        scipy.misc.imsave(dst+'/'+'val_label/'+i+'.png',plt.imread(src_label+'/'+i))
+
+        
     return len(img_train_gen),len(img_test_gen)
     
 def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/dataset_img/cropped',few_images=False):
@@ -162,13 +223,19 @@ def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/dataset_img/crop
         os.makedirs(save_path+'/'+'neg_img')
         os.makedirs(save_path+'/'+'label')
         os.makedirs(save_path+'/'+'neg_label')
+        os.makedirs(save_path+'/'+'test_images_corner')
+        os.makedirs(save_path+'/'+'test_images_corner/img')
+        os.makedirs(save_path+'/'+'test_images_corner/label')
     except:
         os.makedirs(save_path)
         os.makedirs(save_path+'/'+'img')
         os.makedirs(save_path+'/'+'neg_img')
         os.makedirs(save_path+'/'+'label')
         os.makedirs(save_path+'/'+'neg_label')
-    
+        os.makedirs(save_path+'/'+'test_images_corner')
+        os.makedirs(save_path+'/'+'test_images_corner/img')
+        os.makedirs(save_path+'/'+'test_images_corner/label')
+
     if(few_images):
         num_images = 3
     counter=0
@@ -184,41 +251,47 @@ def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/dataset_img/crop
             label = plt.imread(label_path+'/'+i[:2]+'_test.png')
            
         else:
-            img = plt.imread(img_path+'/'+i)
-            label = plt.imread(label_path+'/'+i)
+            if(i in os.listdir(img_path)):
+                img = plt.imread(img_path+'/'+i)
+                label = plt.imread(label_path+'/'+i)
 
 
     
-        img = plt.imread(img_path+'/'+i)
-        label = plt.imread(label_path+'/'+i)
+        #img = plt.imread(img_path+'/'+i)
+        #label = plt.imread(label_path+'/'+i)
         
         
-        
-        if((label**2).sum()==0):
-            scipy.misc.imsave(save_path+'/'+'neg_label'+'/'+i,zero)
-            scipy.misc.imsave(save_path+'/'+'neg_img'+'/'+i,img)
+                if((label**2).sum()==0):
+                    scipy.misc.imsave(save_path+'/'+'neg_label'+'/'+i,zero)
+                    scipy.misc.imsave(save_path+'/'+'neg_img'+'/'+i,img)
             
-        else:
-            
+                else:
+                    mean_pos = np.mean(np.where(label>0),axis=1).astype(int)
+                
 
-            if(few_images and counter < num_images):
-                mean_pos = np.mean(np.where(label>0),axis=1).astype(int)
-                counter+=1
-                scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
-                scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
-            elif(few_images and counter == num_images):
-                break
-            
-            else:
-                mean_pos = np.mean(np.where(label>0),axis=1).astype(int)
+                        
+                    if(mean_pos[0] -50 >=0 and mean_pos[1] -50 >=0 and mean_pos[1] +50 <=label.shape[1] and mean_pos[0] +50 <= label.shape[0]):
+                        scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+                        scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+                    else:
 
-                scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
-                scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+                        r_0 = max(mean_pos[0] -50,0)
+                        c_0 = max(mean_pos[1] -50,0)
+                        r_1 = min(mean_pos[0] +50,label.shape[0])
+                        c_1 = min(mean_pos[1] +50,label.shape[1])
 
-            mean_pos = np.mean(np.where(label>0),axis=1).astype(int)
+                        scipy.misc.imsave(save_path+'/'+'test_images_corner/label'+'/'+i,label[r_0 : r_1,c_0 : c_1 ])
+                        scipy.misc.imsave(save_path+'/'+'test_images_corner/img'+'/'+i,img[r_0 : r_1,c_0 : c_1 ])
 
-            scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
-            scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+                            
+       
+
+
+
+                    #
+
+                    #scipy.misc.imsave(save_path+'/'+'label'+'/'+i,label[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
+                    #scipy.misc.imsave(save_path+'/'+'img'+'/'+i,img[mean_pos[0]-50 : mean_pos[0]+50,mean_pos[1]-50 : mean_pos[1]+50 ])
 
         
         
@@ -238,19 +311,36 @@ def get_box(label_path):
     
 def get_series(label_path,test_fraction = 0.05):
     
+    ### permanently 0.1 val fraction
+    
     series_name = [i[:-4] for i in os.listdir(label_path) if '.png' in i]
+    
+    val_fraction=0.1
+    train_fraction=0.9
+    
+    
     
     random.shuffle(series_name)
     sz = len(series_name)
+    
+        
     ### returns train and test
-    train_end = int(np.ceil(sz - test_fraction*sz))
-    test_start = int(train_end+1)
-    #print(train_end)
-    #print(test_start)
+    
+    val_start = 0
+    val_end = np.ceil(sz*val_fraction).astype(int)
+    print(val_end)
+    
+    train_start = int(val_end+1)
+    test_start = np.ceil(sz -test_fraction*sz).astype(int)
+    train_end = int(test_start - 1)
+    print(train_start)
+    print(train_end+1)
+    
+    
     if (test_fraction>0):
-        return series_name[ :train_end ],series_name[test_start:]
+        return series_name[ train_start:train_end ],series_name[val_start:val_end],series_name[test_start:]
     else:
-        return series_name
+        return series_name[train_start:train_end],series_name[:val_end]
 
 def find_stats(path):
     
