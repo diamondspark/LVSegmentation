@@ -81,7 +81,7 @@ class SAE(nn.Module):
         
         ### VAL SET
         
-        for i in val_series[:int(0.2*self.num_patches)]:
+        for i in val_series[:int(len(val_series))]:
             count+=1
             
             if(not(dim[0]==self.n_in)):
@@ -116,9 +116,9 @@ class SAE(nn.Module):
             if not(self.label_path ==0):
                 label_val[count,:] = torch.Tensor(scipy.misc.imresize(plt.imread(self.label_path+'/'+i+'.png')))
         
-        
+        count = -1
         ### TRAIN SET
-        for i in train_series[:self.num_patches]:
+        for i in train_series[:len(train_series)]:
             count+=1
             
             if(not(dim[0]==self.n_in)):
@@ -144,7 +144,7 @@ class SAE(nn.Module):
                 img_train[count,:,:,:] = torch.Tensor(temp_im)
             
             if(img_train[count,0,:,:].max() != img_train[count,0,:,:].min()):
-            
+                #print('here')
                 img_train[count,0,:,:] = (img_train[count,0,:,:] - img_train[count,0,:,:].min())/(img_train[count,0,:,:].max() - img_train[count,0,:,:].min())
             
             
@@ -171,11 +171,13 @@ class SAE(nn.Module):
         
         
         dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],
-                                                               batch_size=self.b_size,
+                                                               #batch_size=self.b_size,
+                                                               batch_size=len(train_series),
                                                                shuffle=False,
                                                                num_workers=4),
                        'Val': torch.utils.data.DataLoader(dsets['Val'],
-                                                          batch_size=self.b_size,
+                                                          #batch_size=self.b_size,
+                                                          batch_size=len(val_series),
                                                           shuffle=False,
                                                           num_workers=4),
               }
@@ -213,7 +215,7 @@ def train_sae(model,epochs,loss_graph = 'loss_sae.png'):
     #ax = fig.add_subplot(1,1,1) 
     
     dataset_loader,data_size = model.transform()
-    dataset_loader2,data_size2 = model.transform()
+    #dataset_loader2,data_size2 = model.transform()
     
     #print(dataset_loader['Training'].next())
     #print(dataset_loader)
@@ -226,17 +228,18 @@ def train_sae(model,epochs,loss_graph = 'loss_sae.png'):
 
     if('Training' not in loss_list):
         loss_list['Training'] = []
-
+    epoch_list = []
     for epoch in range(0,epochs):
         #print(epoch)
-        
+        epoch_list.append(epoch)
         
         if(epoch%1000==0 and epoch>0):
-            print(model.lr)
+            #print(model.lr)
+            print(epoch)
             for param in optimizer.param_groups:
                 param['lr']=model.lr * (0.1**(epoch//1000))
         
-        for phase in ['Training','Val']:
+        for phase in ['Training']:
             running_loss=0
             for i in dataset_loader[phase]:
                 inp1,_ = i
@@ -251,9 +254,9 @@ def train_sae(model,epochs,loss_graph = 'loss_sae.png'):
 
                 out = model(inp1)
                 #print(model.out_at_layer(inp1.view(-1,model.n_in**2),1))
-
-                out_temp = out.cpu().data.numpy().reshape(-1,11,11)
-                inp_temp = inp1.cpu().data.numpy().reshape(-1,11,11)
+                #print(out.sum())
+                out_temp = out.cpu().data.numpy().reshape(-1,model.n_in,model.n_in)
+                inp_temp = inp1.cpu().data.numpy().reshape(-1,model.n_in,model.n_in)
                 #for i in range(0,out.size(0)):
                     #plt.figure()
 
@@ -278,7 +281,7 @@ def train_sae(model,epochs,loss_graph = 'loss_sae.png'):
 
                 kl = torch.sum(model.rho*torch.log(model.rho/a) + (1-model.rho)*torch.log((1-model.rho)/(1-a)))
 
-                loss = model.beta*kl + ((torch.norm(out - inp1.view(-1,model.n_in*model.n_in))**2)/(2*model.b_size)) 
+                loss = model.beta*kl + ((torch.norm(out - inp1.view(-1,model.n_in*model.n_in))**2)/(2*out_temp.shape[0])) 
                 #+ 0.5*model.lam*(torch.norm(model.state_dict()['fc1.weight'])+ torch.norm(model.state_dict()['fc2.weight']))
                     
                 running_loss+=loss.cpu().data[0]
@@ -289,12 +292,14 @@ def train_sae(model,epochs,loss_graph = 'loss_sae.png'):
 
                 del(inp1)
                 #print(running_loss)
-
+            print(running_loss)
+                
             loss_list[phase].append(running_loss)
         
     model=model.cpu()     
-    plt.plot(np.array(loss_list['Val']),'r' )
-    plt.plot(np.array(loss_list['Training']),'g' )
+    #plt.plot( np.array(epoch_list),loss_list['Val'],'r',np.array(epoch_list),loss_list['Training'],'g')
+    plt.plot( np.array(epoch_list),loss_list['Training'],'g')
+    
     plt.savefig('/data/gabriel/LVseg/sae_losses/train_'+loss_graph)
     
     
@@ -302,7 +307,8 @@ def train_sae(model,epochs,loss_graph = 'loss_sae.png'):
     for p in model.modules():
         if isinstance(p,nn.Linear):
             #print(p)
-            return p.weight.data,p.bias.data
+            return p.weight.data,p.bias.data,dataset_loader,data_size
+            break
 
 
     
@@ -712,7 +718,11 @@ class StackedAE(nn.Module):
             temp_im/=sd
 
             img_test[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64))/256.0)
-
+            
+            if(not(img_test[count,0,:,:].max()==img_test[count,0,:,:].min())):
+                img_test[count,0,:,:] = (img_test[count,0,:,:] - img_test[count,0,:,:].min())/(img_test[count,0,:,:].max() - img_test[count,0,:,:].min())
+            
+            
             temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'test_label'+'/'+i),(64,64))
             temp_im[temp_im>0]=1.0
             label_test[count,:] = torch.Tensor(temp_im.astype(float)).view(4096)
@@ -743,7 +753,9 @@ class StackedAE(nn.Module):
             temp_im/=sd
 
             img_train[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64))/256.0)
-
+            if(not(img_train[count,0,:,:].max()==img_train[count,0,:,:].min())):
+                img_train[count,0,:,:] = (img_train[count,0,:,:] - img_train[count,0,:,:].min())/(img_train[count,0,:,:].max() - img_train[count,0,:,:].min())
+            
             temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'train_label'+'/'+i),(64,64))
             temp_im[temp_im>0]=1.0
             label_train[count,:] = torch.Tensor(temp_im.astype(float)).view(4096)
@@ -764,7 +776,7 @@ class StackedAE(nn.Module):
         ### TODO maybe use os.listdir to get the made folders ?? or make the folders on the fly based on test_only input
         return dset_loaders,dset_sizes
 
-def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs):
+def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
     train_loss_curve = []
     ### cache dir to store the in hidden layer activations
     torch.cuda.set_device(model_st_ae.gpu)
@@ -814,9 +826,9 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs):
             pre_trained_st.train()
             for name,module in pre_trained_st.named_children():
                 
-                if(name=='fc3'):
+                if(not(name=='fc3')):
                     module.requires_grad=False
-            optim_pretrain = optim.Adam(pre_trained_st.parameters(),lr = 0.000002)
+            optim_pretrain = optim.Adam(pre_trained_st.parameters(),lr = 0.0002,weight_decay=10**-4)
             
             for pre_train_epochs in range(0,pre_train_epochs):
                 for i in dataset_loader['Training']:
@@ -828,7 +840,7 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs):
                     #plt.imshow(out.cpu().data.numpy()[0,:].reshape(model_st_ae.n_in,model_st_ae.n_in)),plt.show()
                     
                     optim_pretrain.zero_grad()
-                    L = (0.5/data_size['Training'])*torch.norm(label-out)**2 + (10**-4)*torch.norm(pre_trained_st.state_dict()['fc3.weight'])**2
+                    L = (0.5/data_size['Training'])*torch.norm(label-out)**2 
                     L.backward()
                     optim_pretrain.step()
                 del(inp)
@@ -868,13 +880,13 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs):
         else:
             
             
-            sae_1 = SAE(n_in=n_in_all[count-1],n_h=n_h_all[count-1],n_out=n_in_all[count-1],img_path=cache,b_size = 2000, patch_size = 0,lr=0.000001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
+            sae_1 = SAE(n_in=n_in_all[count-1],n_h=n_h_all[count-1],n_out=n_in_all[count-1],img_path=cache,b_size = 2000, patch_size = 0,lr=0.0001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
             
             dataset_loader_sae,dataset_size_sae = sae_1.transform() 
             
             l_count = 1
         
-            w1,b1 = train_sae(model=sae_1,epochs = pre_train_epochs)
+            w1,b1,d_loader_temp,d_size = train_sae(sae_1, pre_train_epochs,str(count)+'_'+loss_graph_name)
 
             for j in model_st_ae.modules():
                 if isinstance(j,nn.Linear) and l_count == count:
@@ -922,7 +934,7 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs):
         param.requires_grad=True
     model_st_ae.cuda()
 
-    optim2 = optim.Adam(model_st_ae.parameters(),lr = model_st_ae.lr)
+    optim2 = optim.Adam(model_st_ae.parameters(),lr = model_st_ae.lr,weight_decay=10**-4)
 
     for epoch_train in range(0,epochs):
         running_loss = 0
@@ -933,12 +945,9 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs):
             optim2.zero_grad()
             out = model_st_ae(inp)
             
-            w6 = model_st_ae.state_dict()['fc3.weight']
-            w5 =  model_st_ae.state_dict()['fc2.weight']
-            w4 = model_st_ae.state_dict()['fc1.weight']
             l2_diff = torch.norm(label-out)**2
             
-            loss =(0.5/data_size['Training'])*l2_diff + (10**-4)*(torch.norm(w6)**2 + torch.norm(w5)**2 + torch.norm(w4)**2 )
+            loss =(0.5/data_size['Training'])*l2_diff 
             loss.backward()
             optim2.step()
             running_loss+=loss.cpu().data[0]

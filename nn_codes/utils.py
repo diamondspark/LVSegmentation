@@ -17,6 +17,33 @@ def compare_result(box_path,label_path,img_path):
             img = plt.imread()
 '''
 
+def change_name(img_src,label_src,dst='/data/gabriel/LVseg/renamed/'):
+    '''
+    try:
+        shutil.rmtree(dst)
+        shutil.rmtree(dst+'/label')
+        shutil.rmtree(dst+'/img')
+        os.makedirs(dst)
+        os.makedirs(dst+'/label')
+        os.makedirs(dst+'/img')
+    except:
+        os.makedirs(dst)
+        os.makedirs(dst+'/label')
+        os.makedirs(dst+'/img')
+    '''    
+    pos = [ i for i,j in enumerate(img_src[::-1]) if j=='/' ][1]
+    folder_name = img_src[::-1][1:pos][::-1]
+    for i in os.listdir(img_src):
+        if('.dcm' in i):
+            shutil.copy(img_src+'/'+i,dst+'/img/'+folder_name+'_'+i)
+        print(img_src)
+    for i in os.listdir(label_src):
+        print(label_src)
+        if('.txt' in i ):
+            shutil.copy(label_src+'/'+i,dst+'/label/'+folder_name+'_'+i)
+            
+    
+
 def get_annot():
     labels = ['val_label','online_label','train_label']
     imgs = ['tr','on','val']
@@ -106,7 +133,7 @@ def get_contour(label_src='/data/gabriel/LVseg/dataset_img/cropped/label/',
             else:
                 
                 mean_r = int(M['m10']/(M['m00']))
-                mean_c = int(M['m01']/(M['m00']-1))
+                mean_c = int(M['m01']/(M['m00']))
                 #print(cc[0])
                 #return
                 #print(mean_r,mean_c)
@@ -328,13 +355,13 @@ def get_series(label_path,test_fraction = 0.05):
     
     val_start = 0
     val_end = np.ceil(sz*val_fraction).astype(int)
-    print(val_end)
+    #print(val_end)
     
     train_start = int(val_end+1)
     test_start = np.ceil(sz -test_fraction*sz).astype(int)
     train_end = int(test_start - 1)
-    print(train_start)
-    print(train_end+1)
+    #print(train_start)
+    #print(train_end+1)
     
     
     if (test_fraction>0):
