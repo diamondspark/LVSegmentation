@@ -19,7 +19,7 @@ from utils import find_stats,get_patches,split_im,get_series
 class SAE(nn.Module):
     def __init__(self,n_in=11,n_h=100,n_out=11,img_path='/data/gabriel/LVseg/dataset_img/img_256',
                  label_path = 0,b_size = 1000, patch_size = 0,lr=0.01,rho=0.1,gpu=1,lam = 10**-4,beta = 3,test_fraction=0,
-                num_patches=10**3):
+                num_patches=10**3,use_all=True):
         
         ### patch_size to rescale the image input to auto encoder.
         
@@ -32,8 +32,19 @@ class SAE(nn.Module):
         self.rho = rho
         self.patch_size=patch_size
         self.test_fraction=test_fraction
-        self.fc1 = nn.Linear(n_in*n_in,n_h)
-        self.fc2 = nn.Linear(n_h,n_out*n_out)
+        
+        self.fc1 = nn.Sequential(
+                                nn.Linear(n_in*n_in,n_h),
+                                nn.BatchNorm1d(n_h),                     
+                                nn.Sigmoid()
+                                )
+        
+        self.fc2 = nn.Sequential(
+                                 nn.Linear(n_h,n_out*n_out),
+                                 nn.BatchNorm1d(n_out*n_out),
+                                 nn.Sigmoid()
+                                )
+        
         self.img_path = img_path
         self.label_path=label_path
         #self.f = nn.Sigmoid()
@@ -42,8 +53,8 @@ class SAE(nn.Module):
         self.n_h = n_h
         self.n_out = n_out
         self.b_size=num_patches
-    
-    
+        self.use_all=use_all
+        
     def out_at_layer(self,inp,L):
 
         count= -1
@@ -169,19 +180,33 @@ class SAE(nn.Module):
                  'Val':torch.utils.data.TensorDataset(img_val,label_val)
                 }
         
-        
-        dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],
-                                                               #batch_size=self.b_size,
-                                                               batch_size=len(train_series),
-                                                               shuffle=False,
-                                                               num_workers=4),
-                       'Val': torch.utils.data.DataLoader(dsets['Val'],
-                                                          #batch_size=self.b_size,
-                                                          batch_size=len(val_series),
-                                                          shuffle=False,
-                                                          num_workers=4),
-              }
-
+        if(not(self.use_all)):
+            
+            dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],
+                                                                   #batch_size=self.b_size,
+                                                                   batch_size=self.b_size,
+                                                                   shuffle=False,
+                                                                   num_workers=4),
+                           'Val': torch.utils.data.DataLoader(dsets['Val'],
+                                                              #batch_size=self.b_size,
+                                                              batch_size=self.b_size,
+                                                              shuffle=False,
+                                                              num_workers=4),
+                  }
+        else:
+            dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],
+                                                                   #batch_size=self.b_size,
+                                                                   batch_size=len(train_series),
+                                                                   shuffle=False,
+                                                                   num_workers=4),
+                           'Val': torch.utils.data.DataLoader(dsets['Val'],
+                                                              #batch_size=self.b_size,
+                                                              batch_size=len(val_series),
+                                                              shuffle=False,
+                                                              num_workers=4),
+                  }
+            
+            
         dset_sizes = {'Training':len(dsets['Training']),
                      'Val':len(dsets['Val'])
                      }
@@ -191,17 +216,8 @@ class SAE(nn.Module):
     def forward(self,x):
         x = x.view(-1,self.n_in*self.n_in)
         #print(x.size())
-        x = self.fc1(x.view(-1,self.n_in*self.n_in))
-        
-        x = torch.nn.functional.sigmoid(x)
-        
-        ### hidden layer activation
-        #a = x
-        
+        x = self.fc1(x)
         x = self.fc2(x)
-        
-        
-        x = torch.nn.functional.sigmoid(x)
         
         return x#,a    
 
@@ -323,6 +339,7 @@ class localnet(nn.Module):
         self.b_size=b_size
         self.gpu=gpu
         self.conv = nn.Conv2d(1,100,11)
+        self.bn2d = nn.BatchNorm2d(100)
         self.avg_pool = nn.AvgPool2d(6,6)
         self.classifier = nn.Linear(8100,1024)
         self.smax = nn.Softmax()
@@ -638,7 +655,7 @@ def test_lnet(model,fname='0',save_dir='0'):
     
 
 class StackedAE(nn.Module):
-    def __init__(self,img_path,label_path,gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01,test_train_dst = '/data/gabriel/LVseg/dataset_img/data_seg',b_size=1000):
+    def __init__(self,img_path,label_path,gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01,test_train_dst = '/data/gabriel/LVseg/dataset_img/data_seg',b_size=1000,use_all=False,use_smax=False,bnorm_train=True):
         super(StackedAE,self).__init__()
         self.img_path=img_path
         self.label_path=label_path
@@ -648,50 +665,118 @@ class StackedAE(nn.Module):
         self.n_out = n_out
         self.test_fraction = test_fraction
         self.lr = lr
-        self.fc1 = nn.Linear(n_in*n_in,n_h)
-        self.fc2 = nn.Linear(n_h,n_h)
-        self.fc3 = nn.Linear(n_h,n_out*n_out)
+        self.use_smax = use_smax
+        self.bnorm_train=bnorm_train
+        
+        if(self.use_smax and not(bnorm_train)):
+            
+            self.fc1 = nn.Sequential(
+                    nn.Linear(n_in*n_in,n_h),
+                    nn.BatchNorm1d(n_h).eval(),
+                    nn.Sigmoid()
+                    )
+            self.fc2 = nn.Sequential(
+                    nn.Linear(n_h,n_h),
+                    nn.BatchNorm1d(n_h).eval(),
+                    nn.Sigmoid(),
+                    )
+            
+            self.fc3 = nn.Sequential(
+                    nn.Linear(n_h,n_out*n_out),
+                    nn.BatchNorm1d(n_out*n_out).eval(),
+                    nn.LogSoftmax()
+                    )
+             
+        elif(not(self.use_smax) and not(bnorm_train)):
+            self.fc1 = nn.Sequential(
+                    nn.Linear(n_in*n_in,n_h),
+                    nn.BatchNorm1d(n_h).eval(),
+                    nn.Sigmoid()
+                    )
+            self.fc2 = nn.Sequential(
+                    nn.Linear(n_h,n_h),
+                    nn.BatchNorm1d(n_h).eval(),
+                    nn.Sigmoid(),
+                    )
+            
+            self.fc3 = nn.Sequential(
+                    nn.Linear(n_h,n_out*n_out),
+                    nn.BatchNorm1d(n_out*n_out).eval(),
+                    nn.Sigmoid()
+                    )
+        
+        elif(self.use_smax and bnorm_train):
+            
+            self.fc1 = nn.Sequential(
+                    nn.Linear(n_in*n_in,n_h),
+                    nn.BatchNorm1d(n_h),
+                    nn.Sigmoid()
+                    )
+            self.fc2 = nn.Sequential(
+                    nn.Linear(n_h,n_h),
+                    nn.BatchNorm1d(n_h),
+                    nn.Sigmoid()
+                    )
+            
+            self.fc3 = nn.Sequential(
+                    nn.Linear(n_h,n_out*n_out),
+                nn.BatchNorm1d(n_out*n_out),    
+                nn.LogSoftmax()
+                    )
+             
+        elif(not(self.use_smax) and bnorm_train):
+            self.fc1 = nn.Sequential(
+                    nn.Linear(n_in*n_in,n_h),
+                    nn.BatchNorm1d(n_h),
+                    nn.Sigmoid()
+                    )
+            self.fc2 = nn.Sequential(
+                    nn.Linear(n_h,n_h),
+                    nn.BatchNorm1d(n_h),
+                    nn.Sigmoid()
+                    )
+            
+            self.fc3 = nn.Sequential(
+                    nn.Linear(n_h,n_out*n_out),
+                nn.BatchNorm1d(n_out*n_out),    
+                nn.Sigmoid()
+                    )
+            
+             
+            #self.bn3 = nn.BatchNorm1d(n_out*n_out)
+        self.use_all=use_all
         self.test_train_dst = test_train_dst
         self.b_size=b_size
-    def hidden1(self,x):
-        x = self.fc1(x)
-        x = nn.functional.sigmoid(x)
-        return x
     
-    def hidden2(self,x):
-        x = self.fc2(x)
-        x = nn.functional.sigmoid(x)
-        return x
     
-    def target_layer(self,x):
-        x = self.fc3(x)
-        x = nn.functional.sigmoid(x)
-        return x
+    @staticmethod
+    def loss_fn_l2(inp,target):
+        return torch.norm(inp - target)
+    @staticmethod
+    def loss_fn_bce(inp,target):
+        
+        return torch.nn.functional.binary_cross_entropy(inp,target)
+         
+    def loss_fn(self,inp,target):
+        
+        out = self.forward(inp)
+        if(self.use_smax):
+        
+            return self.loss_fn_bce(out,target) 
+        else:
+            return self.loss_fn_l2(out,target)
     
     def out_at_layer(self,inp,L):
-    
-        count= -1
-        for i in self.modules():
-            count+=1
-            try:
-                if(count==L):
-                    #print(tt)
-                    return(torch.nn.functional.sigmoid(i(inp)))
-                    
-            except:
-                continue
-    
+        tempm = nn.Sequential(*list(self.children())[L-1])(inp)
+        return tempm
+        
     ### train the first weight
     
     def forward(self,x):
         x = x.view(-1,self.n_in*self.n_in)
-        
-        x = self.hidden1(x)
-        
-        x = self.hidden2(x)
-        
-        x = self.target_layer(x)
-        
+        x = self.fc1(x)
+        x = self.fc2(x)
+        x = self.fc3(x)
         return x
        
     def transform(self,rand = False,mean=0,sd = 1):
@@ -729,7 +814,7 @@ class StackedAE(nn.Module):
                 
         dsets1 = {'Test':torch.utils.data.TensorDataset(img_test,label_test)}
 
-        dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets1['Test'],batch_size=self.b_size,shuffle=False,num_workers=4)
+        dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets1['Test'],batch_size=test_l,shuffle=False,num_workers=4)
               }
         dset_sizes1 = {'Test':len(dsets1['Test'])}
 
@@ -759,12 +844,19 @@ class StackedAE(nn.Module):
             temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'train_label'+'/'+i),(64,64))
             temp_im[temp_im>0]=1.0
             label_train[count,:] = torch.Tensor(temp_im.astype(float)).view(4096)
-                
-        dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
         
-        dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=self.b_size,shuffle=False,num_workers=4)
-              }
+        if(self.use_all):
+            dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
 
+            dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=(train_l),shuffle=False,num_workers=4)
+                  }
+        else:
+            dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
+
+            dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=self.b_size,shuffle=False,num_workers=4)
+                  }
+
+            
         dset_sizes = {'Training':len(dsets['Training'])}
 
         with open(dst+'/train_loader_st.p','wb') as f:
@@ -781,7 +873,6 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
     ### cache dir to store the in hidden layer activations
     torch.cuda.set_device(model_st_ae.gpu)
     
-    
     optimizer = optim.Adam(model_st_ae.parameters(),lr = model_st_ae.lr)
     #num_
     model_st_ae.train()
@@ -789,7 +880,7 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
     #model = model_st_ae.cuda()
     loss_arr = []
     
-    w_mat = np.array([[model_st_ae.state_dict()['fc'+str(i)+'.weight'].size()[0],model_st_ae.state_dict()['fc'+str(i)+'.weight'].size()[1]] for i in range(1,4)])
+    w_mat = np.array([[model_st_ae.state_dict()['fc'+str(i)+'.0.weight'].size()[0],model_st_ae.state_dict()['fc'+str(i)+'.0.weight'].size()[1]] for i in range(1,4)])
     
     n_in_all = np.sqrt(w_mat[:,1]).astype(int)
     n_h_all = w_mat[:,0].astype(int)
@@ -825,9 +916,13 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
             counter1 = 0
             pre_trained_st.train()
             for name,module in pre_trained_st.named_children():
-                
+
                 if(not(name=='fc3')):
-                    module.requires_grad=False
+                    for k in module.children():
+                        k.requires_grad=False
+                else:
+                    for k in module.children():
+                        k.requires_grad=True
             optim_pretrain = optim.Adam(pre_trained_st.parameters(),lr = 0.0002,weight_decay=10**-4)
             
             for pre_train_epochs in range(0,pre_train_epochs):
@@ -863,10 +958,10 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
                 #print(out_at_2.shape[0],out_at_2.shape[1])
                 for j in range(0,out_temp.shape[0]):
                     j = int(j)
-                    scipy.misc.imsave('/data/gabriel/LVseg/segment_out/res_at_3/'+str(j)+'_'+'.png',
+                    scipy.misc.imsave(cache_dir+'/'+'res_at_3/'+str(j)+'_'+'.png',
                                       out_temp[j,:].reshape(np.sqrt(out_temp.shape[1]).astype(int),np.sqrt(out_temp.shape[1]).astype(int))
                                      )
-                    scipy.misc.imsave('/data/gabriel/LVseg/segment_out/resin_at_3/'+str(j)+'_'+'.png',
+                    scipy.misc.imsave(cache_dir+'/resin_at_3/'+str(j)+'_'+'.png',
                                       out_at_2[j,:].reshape(np.sqrt(out_at_2.shape[1]).astype(int),np.sqrt(out_at_2.shape[1]).astype(int))
                                      )
                 
@@ -880,7 +975,7 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
         else:
             
             
-            sae_1 = SAE(n_in=n_in_all[count-1],n_h=n_h_all[count-1],n_out=n_in_all[count-1],img_path=cache,b_size = 2000, patch_size = 0,lr=0.0001,rho=0.1,gpu=1,lam = 3*(10**-3),beta = 3,test_fraction=0)
+            sae_1 = SAE(n_in=n_in_all[count-1],n_h=n_h_all[count-1],n_out=n_in_all[count-1],img_path=cache,b_size = model_st_ae.b_size, patch_size = 0,lr=0.0001,rho=0.1,gpu=model_st_ae.gpu,lam = 3*(10**-3),beta = 3,test_fraction=0)
             
             dataset_loader_sae,dataset_size_sae = sae_1.transform() 
             
@@ -943,11 +1038,11 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
             inp,label = i
             inp,label = Variable(inp.cuda()),Variable(label.cuda())
             optim2.zero_grad()
-            out = model_st_ae(inp)
+            #out = model_st_ae(inp)
             
-            l2_diff = torch.norm(label-out)**2
             
-            loss =(0.5/data_size['Training'])*l2_diff 
+            
+            loss =(0.5/data_size['Training'])*model_st_ae.loss_fn(inp,label)
             loss.backward()
             optim2.step()
             running_loss+=loss.cpu().data[0]
@@ -965,6 +1060,10 @@ def test_st_ae(model=None,fname='0',save_dir='0'):
     #optimizer = optim.SGD(model.parameters(),lr = 0.001)
     #fig = plt.figure()
     model.eval()
+    
+    for m in model.children():
+        for k in m.children():
+            k.reguires_grad=False
     
     if(not(fname=='0')):
         model.load_model(fname)
