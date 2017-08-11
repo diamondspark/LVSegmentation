@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from torch.autograd import Variable
 from torchvision import datasets,transforms
 import scipy.misc
+from collections import OrderedDict
 # n_in=121,n_h=100,n_out=121
 import random
 import numpy as np
@@ -13,9 +14,12 @@ import simplejson
 import shutil
 import torchvision
 import pickle
-from utils import find_stats,get_patches,split_im,get_series
+from utils import find_stats,get_patches,split_im,get_series,DiceLoss,calc_per_image_dice
 ### Train mean = 0.122231430457 
 ### Train sd = 0.162071986271
+
+
+
 class SAE(nn.Module):
     def __init__(self,n_in=11,n_h=100,n_out=11,img_path='/data/gabriel/LVseg/dataset_img/img_256',
                  label_path = 0,b_size = 1000, patch_size = 0,lr=0.01,rho=0.1,gpu=1,lam = 10**-4,beta = 3,test_fraction=0,
@@ -32,26 +36,26 @@ class SAE(nn.Module):
         self.rho = rho
         self.patch_size=patch_size
         self.test_fraction=test_fraction
+        self.b_size=int(b_size)
+        self.n_in = int(n_in)
+        self.n_h = int(n_h)
+        self.n_out = int(n_out)
         
         self.fc1 = nn.Sequential(
-                                nn.Linear(n_in*n_in,n_h),
-                                nn.BatchNorm1d(n_h),                     
+                                nn.Linear(self.n_in*self.n_in,self.n_h),
+                                #nn.BatchNorm1d(n_h),                     
                                 nn.Sigmoid()
                                 )
         
         self.fc2 = nn.Sequential(
-                                 nn.Linear(n_h,n_out*n_out),
-                                 nn.BatchNorm1d(n_out*n_out),
+                                 nn.Linear(n_h,self.n_out*self.n_out),
+                                 #nn.BatchNorm1d(n_out*n_out),
                                  nn.Sigmoid()
                                 )
         
         self.img_path = img_path
         self.label_path=label_path
         #self.f = nn.Sigmoid()
-        self.b_size=b_size
-        self.n_in = n_in
-        self.n_h = n_h
-        self.n_out = n_out
         self.b_size=num_patches
         self.use_all=use_all
         
@@ -88,7 +92,7 @@ class SAE(nn.Module):
         dim = temp_im.shape
         count = -1
         
-        mean,sd = find_stats(self.img_path)
+        #mean,sd = find_stats(self.img_path)
         
         ### VAL SET
         
@@ -251,7 +255,7 @@ def train_sae(model,epochs,loss_graph = 'loss_sae.png'):
         
         if(epoch%1000==0 and epoch>0):
             #print(model.lr)
-            print(epoch)
+            #print(epoch)
             for param in optimizer.param_groups:
                 param['lr']=model.lr * (0.1**(epoch//1000))
         
@@ -308,7 +312,7 @@ def train_sae(model,epochs,loss_graph = 'loss_sae.png'):
 
                 del(inp1)
                 #print(running_loss)
-            print(running_loss)
+            #print(running_loss)
                 
             loss_list[phase].append(running_loss)
         
@@ -318,7 +322,7 @@ def train_sae(model,epochs,loss_graph = 'loss_sae.png'):
     
     plt.savefig('/data/gabriel/LVseg/sae_losses/train_'+loss_graph)
     
-    
+    plt.close()
     
     for p in model.modules():
         if isinstance(p,nn.Linear):
@@ -446,11 +450,15 @@ class localnet(nn.Module):
         return dset_loaders,dset_sizes
 
     def store_model(self,f_name):
-
-        
         state={'state_dict':self.state_dict()}
-                          #,'optimizer':self.model_optimizer.state_dict()}
-        torch.save(state,f_name)
+        
+        if(f_name=='0'):
+            
+            torch.save(state,self.saved_weights_data)
+        else:
+            torch.save(state,f_name)
+            
+            
     def out_at_layer(self,inp,L):
 
         count= -1
@@ -464,10 +472,11 @@ class localnet(nn.Module):
             except:
                 continue
 
-    def load_model(self,filename):
-        checkpoint = torch.load(filename)
-        
-        
+    def load_model(self,filename='0'):
+        if(filename=='0'):
+            checkpoint=torch.load(self.saved_weights_path)
+        else:
+            checkpoint = torch.load(filename)
         
         # create new OrderedDict that does not contain `module.`
         if not(isinstance(self.gpu,int)):
@@ -655,117 +664,188 @@ def test_lnet(model,fname='0',save_dir='0'):
     
 
 class StackedAE(nn.Module):
-    def __init__(self,img_path,label_path,gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01,test_train_dst = '/data/gabriel/LVseg/dataset_img/data_seg',b_size=1000,use_all=False,use_smax=False,bnorm_train=True):
+    def __init__(self,img_path='0',label_path='0',gpu=0,n_in = 64,n_h =100 ,n_out = 64,test_fraction=0,lr=0.01,
+                 test_train_dst = '/data/gabriel/LVseg/dataset_img/data_seg',b_size=1000,use_all=False,
+                 use_smax=False,bnorm_train=True,
+                 use_saved_data=False, use_saved_weights=False,
+                 loss_func='L2',use_bnorm=False,saved_data_path='0',saved_weights_path = '0',mean_sd_norm=False
+                ):
         super(StackedAE,self).__init__()
         self.img_path=img_path
         self.label_path=label_path
         self.gpu = gpu
-        self.n_in = n_in
-        self.n_h = n_h
-        self.n_out = n_out
+        self.n_in = int(n_in)
+        self.n_h = int(n_h)
+        self.n_out = int(n_out)
         self.test_fraction = test_fraction
         self.lr = lr
         self.use_smax = use_smax
         self.bnorm_train=bnorm_train
-        
-        if(self.use_smax and not(bnorm_train)):
+        self.use_saved_data = use_saved_data
+        self.saved_data_path = saved_data_path
+        self.loss_func = loss_func
+        self.use_saved_weights = use_saved_weights
+        self.saved_weights_path = saved_weights_path
+        self.mean_sd_norm = mean_sd_norm
+        if(not(use_bnorm)):
             
-            self.fc1 = nn.Sequential(
-                    nn.Linear(n_in*n_in,n_h),
-                    nn.BatchNorm1d(n_h).eval(),
-                    nn.Sigmoid()
-                    )
-            self.fc2 = nn.Sequential(
-                    nn.Linear(n_h,n_h),
-                    nn.BatchNorm1d(n_h).eval(),
-                    nn.Sigmoid(),
-                    )
-            
-            self.fc3 = nn.Sequential(
-                    nn.Linear(n_h,n_out*n_out),
-                    nn.BatchNorm1d(n_out*n_out).eval(),
+            if(self.use_smax):
+                self.fc1 = nn.Sequential(
+                        nn.Linear(n_in*n_in,n_h),
+                        nn.Relu()
+                        )
+                self.fc2 = nn.Sequential(
+                        nn.Linear(n_h,n_h),
+                        nn.Relu(),
+                        )
+
+                self.fc3 = nn.Sequential(
+                        nn.Linear(n_h,n_out*n_out),
+                        nn.Relu(),
+                        nn.LogSoftmax()
+                        )
+            else:
+                self.fc1 = nn.Sequential(
+                        nn.Linear(n_in*n_in,n_h),
+                        nn.Sigmoid()
+                        )
+                self.fc2 = nn.Sequential(
+                        nn.Linear(n_h,n_h),
+                        nn.Sigmoid()
+                        )
+
+                self.fc3 = nn.Sequential(
+                        nn.Linear(n_h,n_out*n_out),
+                        nn.Sigmoid()
+                        )
+                
+        else:
+            if(self.use_smax and not(bnorm_train)):
+
+                self.fc1 = nn.Sequential(
+                        nn.Linear(n_in*n_in,n_h),
+                        nn.BatchNorm1d(n_h).eval(),
+                        nn.Sigmoid()
+                        )
+                self.fc2 = nn.Sequential(
+                        nn.Linear(n_h,n_h),
+                        nn.BatchNorm1d(n_h).eval(),
+                        nn.Sigmoid(),
+                        )
+
+                self.fc3 = nn.Sequential(
+                        nn.Linear(n_h,n_out*n_out),
+                        nn.BatchNorm1d(n_out*n_out).eval(),
+                        nn.LogSoftmax()
+                        )
+
+            elif(not(self.use_smax) and not(bnorm_train)):
+                self.fc1 = nn.Sequential(
+                        nn.Linear(n_in*n_in,n_h),
+                        nn.BatchNorm1d(n_h).eval(),
+                        nn.Sigmoid()
+                        )
+                self.fc2 = nn.Sequential(
+                        nn.Linear(n_h,n_h),
+                        nn.BatchNorm1d(n_h).eval(),
+                        nn.Sigmoid(),
+                        )
+
+                self.fc3 = nn.Sequential(
+                        nn.Linear(n_h,n_out*n_out),
+                        nn.BatchNorm1d(n_out*n_out).eval(),
+                        #nn.Sigmoid()
+                        )
+
+            elif(self.use_smax and bnorm_train):
+
+                self.fc1 = nn.Sequential(
+                        nn.Linear(n_in*n_in,n_h),
+                        nn.BatchNorm1d(n_h),
+                        nn.Sigmoid()
+                        )
+                self.fc2 = nn.Sequential(
+                        nn.Linear(n_h,n_h),
+                        nn.BatchNorm1d(n_h),
+                        nn.Sigmoid()
+                        )
+
+                self.fc3 = nn.Sequential(
+                        nn.Linear(n_h,n_out*n_out),
+                    nn.BatchNorm1d(n_out*n_out),    
                     nn.LogSoftmax()
-                    )
-             
-        elif(not(self.use_smax) and not(bnorm_train)):
-            self.fc1 = nn.Sequential(
-                    nn.Linear(n_in*n_in,n_h),
-                    nn.BatchNorm1d(n_h).eval(),
-                    nn.Sigmoid()
-                    )
-            self.fc2 = nn.Sequential(
-                    nn.Linear(n_h,n_h),
-                    nn.BatchNorm1d(n_h).eval(),
-                    nn.Sigmoid(),
-                    )
-            
-            self.fc3 = nn.Sequential(
-                    nn.Linear(n_h,n_out*n_out),
-                    nn.BatchNorm1d(n_out*n_out).eval(),
-                    nn.Sigmoid()
-                    )
-        
-        elif(self.use_smax and bnorm_train):
-            
-            self.fc1 = nn.Sequential(
-                    nn.Linear(n_in*n_in,n_h),
-                    nn.BatchNorm1d(n_h),
-                    nn.Sigmoid()
-                    )
-            self.fc2 = nn.Sequential(
-                    nn.Linear(n_h,n_h),
-                    nn.BatchNorm1d(n_h),
-                    nn.Sigmoid()
-                    )
-            
-            self.fc3 = nn.Sequential(
-                    nn.Linear(n_h,n_out*n_out),
-                nn.BatchNorm1d(n_out*n_out),    
-                nn.LogSoftmax()
-                    )
-             
-        elif(not(self.use_smax) and bnorm_train):
-            self.fc1 = nn.Sequential(
-                    nn.Linear(n_in*n_in,n_h),
-                    nn.BatchNorm1d(n_h),
-                    nn.Sigmoid()
-                    )
-            self.fc2 = nn.Sequential(
-                    nn.Linear(n_h,n_h),
-                    nn.BatchNorm1d(n_h),
-                    nn.Sigmoid()
-                    )
-            
-            self.fc3 = nn.Sequential(
-                    nn.Linear(n_h,n_out*n_out),
-                nn.BatchNorm1d(n_out*n_out),    
-                nn.Sigmoid()
-                    )
-            
+                        )
+
+            elif(not(self.use_smax) and bnorm_train):
+                self.fc1 = nn.Sequential(
+                        nn.Linear(n_in*n_in,n_h),
+                        nn.BatchNorm1d(n_h),
+                        nn.Sigmoid()
+                        )
+                self.fc2 = nn.Sequential(
+                        nn.Linear(n_h,n_h),
+                        nn.BatchNorm1d(n_h),
+                        nn.Sigmoid()
+                        )
+
+                self.fc3 = nn.Sequential(
+                        nn.Linear(n_h,n_out*n_out),
+                    nn.BatchNorm1d(n_out*n_out),    
+                    #nn.Sigmoid()
+                        )
+
              
             #self.bn3 = nn.BatchNorm1d(n_out*n_out)
         self.use_all=use_all
         self.test_train_dst = test_train_dst
         self.b_size=b_size
+        
     
     
     @staticmethod
     def loss_fn_l2(inp,target):
         return torch.norm(inp - target)
+    
     @staticmethod
+    
     def loss_fn_bce(inp,target):
         
+        #return torch.nn.functional.binary_cross_entropy(inp,target)
+        #print(inp)
+        #print(target)
+        
         return torch.nn.functional.binary_cross_entropy(inp,target)
-         
-    def loss_fn(self,inp,target):
-        
-        out = self.forward(inp)
-        if(self.use_smax):
-        
-            return self.loss_fn_bce(out,target) 
-        else:
-            return self.loss_fn_l2(out,target)
     
+    @staticmethod
+    def loss_fn_bce_log(inp,target):
+        
+        #return torch.nn.functional.binary_cross_entropy(inp,target)
+        #print(inp)
+        #print(target)
+        #print('LOSS FN')
+        bce_loss = torch.nn.BCELoss()
+        return bce_loss(inp,target)
+    
+    
+    @staticmethod
+    def dice_loss(inp,target):
+        dice = DiceLoss()
+        return dice(inp,target)
+        
+        
+    def loss_fn(self,out,target1):
+        #out=self.forward(inp)
+        #print(out)
+        #print(target1)
+        if(self.loss_func=='BCE'):
+            return self.loss_fn_bce(out,target1) 
+        elif(self.loss_func=='L2'):
+            return self.loss_fn_l2(out,target1)
+        elif(self.loss_func=='BCE_logit'):
+            return self.loss_fn_bce_log(out,target1) 
+        elif (self.loss_func == 'dice_loss'):
+            return self.dice_loss(out,target1)
+        
     def out_at_layer(self,inp,L):
         tempm = nn.Sequential(*list(self.children())[L-1])(inp)
         return tempm
@@ -778,94 +858,148 @@ class StackedAE(nn.Module):
         x = self.fc2(x)
         x = self.fc3(x)
         return x
-       
-    def transform(self,rand = False,mean=0,sd = 1):
+
+    def store_model(self,f_name='0'):
+        state={'state_dict':self.state_dict()}
         
-        ### JUST ENTER THE PATH!
-        dst = self.test_train_dst
+        if(f_name=='0'):
+            torch.save(state,self.saved_weights_path)
+        else:
+            torch.save(state,f_name)
+            
+            
+    def load_model(self,f_name='0'):
+        #self.load_state_dict(checkpoint['state_dict'])
         
-        mean,sd = find_stats(self.img_path)
+        new_state_dict = OrderedDict()
         
+        if(f_name=='0'):
+            checkpoint = torch.load(self.saved_weights_path)
+        else:
+            checkpoint = torch.load(f_name)
+            
+        for k,v in checkpoint['state_dict'].items():
+            if('module' in k):
+                name=k[7:]
+                new_state_dict[name] = v
+            else:
+                name=k
+                new_state_dict[name] = v
+                
+        self.load_state_dict(new_state_dict)
+    
+    def im2tensor(self,sz,mode):
         
-        train_l,test_l= split_im(src_img = self.img_path,src_label = self.label_path,
-                 dst =dst)
-        
+        im_arr = np.zeros((sz,1,self.n_in,self.n_in))
+        lab_arr = np.zeros((sz,self.n_in,self.n_in))
         count=-1
         
-        img_test = torch.Tensor(test_l,1,64,64)
-        label_test = torch.Tensor(test_l,4096)
         
-        for i in os.listdir(dst+'/'+'test_img'):
+        for i in os.listdir(self.test_train_dst+'/'+mode+'_img'):
             count+=1
-
-            temp_im = plt.imread(dst+'/test_img/'+i)
-            temp_im-=mean
-            temp_im/=sd
-
-            img_test[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64))/256.0)
-            
-            if(not(img_test[count,0,:,:].max()==img_test[count,0,:,:].min())):
-                img_test[count,0,:,:] = (img_test[count,0,:,:] - img_test[count,0,:,:].min())/(img_test[count,0,:,:].max() - img_test[count,0,:,:].min())
-            
-            
-            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'test_label'+'/'+i),(64,64))
-            temp_im[temp_im>0]=1.0
-            label_test[count,:] = torch.Tensor(temp_im.astype(float)).view(4096)
-                
-        dsets1 = {'Test':torch.utils.data.TensorDataset(img_test,label_test)}
-
-        dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets1['Test'],batch_size=test_l,shuffle=False,num_workers=4)
-              }
-        dset_sizes1 = {'Test':len(dsets1['Test'])}
-
-        with open(dst+'/test_loader_st.p','wb') as f:
-            pickle.dump(dset_loaders1 ,f)
-
-        with open(dst+'/test_size_st.p','wb') as f:
-            pickle.dump(dset_sizes1 ,f)
-
+            im_arr[count,0,:,:] = plt.imread(self.test_train_dst+'/'+mode+'_img/'+i)
+            lab_arr[count,:,:] = plt.imread(self.test_train_dst+'/'+mode+'_label/'+i)
         
-        label_train = torch.zeros(train_l,4096)
-        img_train = torch.zeros(train_l,1,64,64)
+        #print(lab_arr.max())
+        #print(lab_arr.min())
+        #print(lab_arr[lab_arr>0].min())
+        #lab_arr = 0.5*(np.sign(lab_arr - 0.5) + 1)
+        lab_arr[lab_arr>0]=1.0
+        im_arr[:,0,:,:] = (im_arr[:,0,:,:] - im_arr[:,0,:,:].min())/(im_arr[:,0,:,:].max() - im_arr[:,0,:,:].min())
         
-        count = -1
+        im_temp = im_arr.reshape([-1,self.n_in*self.n_in])
         
-        for i in os.listdir(dst+'/'+'train_img'):
-            count+=1
-
-            temp_im = plt.imread(dst+'/train_img/'+i)
-            temp_im-=mean
-            temp_im/=sd
-
-            img_train[count,:,:,:] = torch.Tensor(scipy.misc.imresize(temp_im,(64,64))/256.0)
-            if(not(img_train[count,0,:,:].max()==img_train[count,0,:,:].min())):
-                img_train[count,0,:,:] = (img_train[count,0,:,:] - img_train[count,0,:,:].min())/(img_train[count,0,:,:].max() - img_train[count,0,:,:].min())
-            
-            temp_im = scipy.misc.imresize(plt.imread(dst+'/'+'train_label'+'/'+i),(64,64))
-            temp_im[temp_im>0]=1.0
-            label_train[count,:] = torch.Tensor(temp_im.astype(float)).view(4096)
+        if(self.mean_sd_norm):
         
-        if(self.use_all):
-            dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
-
-            dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=(train_l),shuffle=False,num_workers=4)
-                  }
+            im_arr =torch.Tensor((im_temp-im_temp.mean())/im_temp.std()).view(-1,1,64,64)
         else:
-            dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train)}
+            im_arr =torch.Tensor(im_temp).view(-1,1,self.n_in,self.n_in)
+        #return    
+        lab_arr = torch.Tensor(lab_arr).view(-1,self.n_in*self.n_in)
+        
+        return im_arr,lab_arr
+        
+    ### make into loaders, possibly add more functions above like augmentation and call it here
+    def transform(self,rand = False):
+        
+        if (self.use_saved_weights):
+            self.load_model(self.saved_weights_path)    
+        
+        
+        if(self.use_saved_data):
+            with open(self.saved_data_path+'/train_loader_st.p','rb') as f:
+                dset_loaders = pickle.load(f)
 
-            dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=self.b_size,shuffle=False,num_workers=4)
+            with open(self.saved_data_path+'/train_size_st.p','rb') as f:
+                dset_sizes = pickle.load(f)
+            
+            return dset_loaders,dset_sizes
+            '''    
+            try:
+                shutil.rmtree(self.test_train_dst)
+                os.makedirs(self.test_train_dst+'/train')
+                shutil.rmtree(self.test_train_dst)
+                os.makedirs(self.test_train_dst+'/test')
+                shutil.rmtree(self.test_train_dst)
+                os.makedirs(self.test_train_dst+'/val')
+                
+            except:
+                os.makedirs(self.test_train_dst+'/val')
+                os.makedirs(self.test_train_dst+'/train')
+                os.makedirs(self.test_train_dst+'/test')
+            ''' 
+        else:
+            dst = self.test_train_dst
+
+            train_l,val_l,test_l= split_im(src_img = self.img_path,src_label = self.label_path,
+                     dst =dst)
+
+            img_test,label_test = self.im2tensor(test_l,'test')
+            img_train,label_train = self.im2tensor(train_l,'train')
+            img_val,label_val = self.im2tensor(val_l,'val')
+            
+            dsets1 = {'Test':torch.utils.data.TensorDataset(img_test,label_test)}
+
+            dset_loaders1 ={'Test': torch.utils.data.DataLoader(dsets1['Test'],batch_size=test_l,shuffle=False,num_workers=4)
                   }
+            dset_sizes1 = {'Test':len(dsets1['Test'])}
 
             
-        dset_sizes = {'Training':len(dsets['Training'])}
+            if(self.use_all):
+                dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train),
+                          'Val':torch.utils.data.TensorDataset(img_val,label_val)}
 
-        with open(dst+'/train_loader_st.p','wb') as f:
-            pickle.dump(dset_loaders1 ,f)
+                dset_loaders ={
+                    'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=(train_l),shuffle=False,num_workers=4),
+                                'Val': torch.utils.data.DataLoader(dsets['Val'],batch_size=(train_l),shuffle=False,num_workers=4),
+                               
+                              }
+            else:
+                dsets = {'Training':torch.utils.data.TensorDataset(img_train,label_train),
+                            'Val':torch.utils.data.TensorDataset(img_val,label_val)}
 
-        with open(dst+'/train_size_st.p','wb') as f:
-            pickle.dump(dset_sizes1 ,f)
-      
-        ### TODO maybe use os.listdir to get the made folders ?? or make the folders on the fly based on test_only input
+                dset_loaders ={'Training': torch.utils.data.DataLoader(dsets['Training'],batch_size=self.b_size,shuffle=False,num_workers=4),
+                               'Val': torch.utils.data.DataLoader(dsets['Val'],batch_size=self.b_size,shuffle=False,num_workers=4)
+                               
+                      }
+
+
+            dset_sizes = {'Training':len(dsets['Training']),
+                         'Val':len(dsets['Val'])}
+
+            with open(dst+'/test_loader_st.p','wb') as f:
+                pickle.dump(dset_loaders1 ,f)
+
+            with open(dst+'/test_size_st.p','wb') as f:
+                pickle.dump(dset_sizes1 ,f)
+
+            
+            with open(dst+'/train_loader_st.p','wb') as f:
+                pickle.dump(dset_loaders ,f)
+
+            with open(dst+'/train_size_st.p','wb') as f:
+                pickle.dump(dset_sizes ,f)
+
         return dset_loaders,dset_sizes
 
 def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
@@ -874,9 +1008,11 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
     torch.cuda.set_device(model_st_ae.gpu)
     
     optimizer = optim.Adam(model_st_ae.parameters(),lr = model_st_ae.lr)
-    #num_
     model_st_ae.train()
     dataset_loader,data_size = model_st_ae.transform()
+    
+    
+    
     #model = model_st_ae.cuda()
     loss_arr = []
     
@@ -892,6 +1028,9 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
     
     dataset_loader_sae,dataset_size_sae = dataset_loader,data_size
     
+    if(model_st_ae.use_saved_weights):
+        count=4
+        model_st_ae.load_model(model_st_ae.saved_weights_path)
     while(count<=3):
         print(count)
         
@@ -923,7 +1062,11 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
                 else:
                     for k in module.children():
                         k.requires_grad=True
-            optim_pretrain = optim.Adam(pre_trained_st.parameters(),lr = 0.0002,weight_decay=10**-4)
+            optim_pretrain = optim.Adam([
+                                         {'params':model_st_ae.fc1.parameters(),'lr' : 0},
+                                         {'params':model_st_ae.fc2.parameters(),'lr' : 0},
+                                         {'params':model_st_ae.fc3.parameters(),'lr' : 0.0001,'weight_decay':10**-4}
+                                        ])
             
             for pre_train_epochs in range(0,pre_train_epochs):
                 for i in dataset_loader['Training']:
@@ -969,6 +1112,7 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
                 
             
             model_st_ae=pre_trained_st
+            model_st_ae.store_model()
             del(pre_trained_st)
             
             break
@@ -1006,7 +1150,7 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
 
                 out = out.cpu().data.numpy()
                 inp = inp.cpu().data.numpy()
-
+                #print(out)
                 for i in range(0,out.shape[0]):
                     #print(np.sqrt(sae_1.n_h))
                     scipy.misc.imsave(cache_dir+'/'+'res_at_'+str(count)+'/'+'out_at_l'+str(count)+'_' +str(b_count)+'_'+str(i)+'.png',out[int(i),:].reshape(int(np.sqrt(sae_1.n_h)),int(np.sqrt(sae_1.n_h))))    
@@ -1024,35 +1168,91 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
         #scipy.misc.imsave(cache_dir+'/'+'res_at_'+str(count)+'/'+'out_at_l'+str(count)+'_' +str(b_count),out.cpu().data.numpy().reshape(np.sqrt(sae_1.n_h),np.sqrt(sae_1.n_h)))
         #scipy.misc.imsave(cache_dir+'/'+'res_at_'+str(count)+'/'+'in_at_l'+str(count)+'_' +str(b_count),inp.cpu().data.numpy().reshape(np.sqrt(sae_1.n_h),np.sqrt(sae_1.n_h)))
     
+    
+    
     model_st_ae.train()
     for param in model_st_ae.parameters():
         param.requires_grad=True
     model_st_ae.cuda()
 
     optim2 = optim.Adam(model_st_ae.parameters(),lr = model_st_ae.lr,weight_decay=10**-4)
-
+    val_loss_curve = []
+    dice_val = []
+    dice_train = []
+    best_dice = 0
+    epochs_arr = []
+    lr = model_st_ae.lr
     for epoch_train in range(0,epochs):
-        running_loss = 0
-        for i in dataset_loader['Training']:
-
-            inp,label = i
-            inp,label = Variable(inp.cuda()),Variable(label.cuda())
-            optim2.zero_grad()
-            #out = model_st_ae(inp)
-            
-            
-            
-            loss =(0.5/data_size['Training'])*model_st_ae.loss_fn(inp,label)
-            loss.backward()
-            optim2.step()
-            running_loss+=loss.cpu().data[0]
-        train_loss_curve.append(running_loss)
+        epochs_arr.append(epoch_train)
         
-    train_loss_curve = np.array(train_loss_curve)
-    plt.plot(train_loss_curve)
-    plt.savefig(model_st_ae.test_train_dst+'/train_loss.png')
+        if(epoch_train%500==0 ):#and epoch_train>0):
+             
+            lr = lr*(0.5**(epoch_train//500))
+            for params in optim2.param_groups:
+                #print('sss')
+                params['lr'] = lr
+        
+        for phase in ['Training','Val']:
+            
+            running_loss = 0
+            avg_dice = 0
+            for i in dataset_loader[phase]:
+                
+                inp,label = i
+                inp,label = Variable(inp.cuda()),Variable(label.cuda())
+                
+                #out = model_st_ae(inp)
+                out = model_st_ae(inp)
+                
+                for j in range(0,data_size[phase]):
+                    avg_dice +=  calc_per_image_dice(out[j,:].cpu().data.numpy().reshape(64,64),
+                                                    label[j,:].cpu().data.numpy().reshape(64,64))
+                
+                avg_dice/=data_size[phase]
+                                          
+                loss =model_st_ae.loss_fn(0.5/data_size[phase]*out,label)
+                #print(phase)
+                #print(loss)
+                
+                if(phase=='Training'):
+                    
+                    optim2.zero_grad()
+                    loss.backward()
+                    optim2.step()
+                running_loss+=loss.cpu().data[0]
+                
+            if(phase=='Val'):
+                dice_val.append(avg_dice)
+                val_loss_curve.append(running_loss)
+            else:
+                dice_train.append(avg_dice)
+                train_loss_curve.append(running_loss)
+        
+        if(best_dice<avg_dice and phase =='Val'):
+            best_dice=avg_dice
+            best_model=model_st_ae
     
-    return model_st_ae   
+    #best_model.store_model(fname = '')
+    
+    dice_val = np.array(dice_val)
+    dice_train = np.array(dice_train)
+    epochs_arr = np.array(epochs_arr)
+    
+    train_loss_curve = np.array(train_loss_curve)
+    val_loss_curve = np.array(val_loss_curve)
+    
+    plt.plot(epochs_arr,train_loss_curve,'b',label='train_loss')
+    plt.plot(epochs_arr,val_loss_curve,'r',label='val_loss')
+    plt.legend(bbox_to_anchor=(1.05,1),loc=2,borderaxespad=0.)
+    plt.savefig(model_st_ae.test_train_dst+'/train_val_loss_st_ae.png')
+    plt.close()
+    
+    plt.plot(epochs_arr,dice_train,'o',label='dice_train')
+    plt.plot(epochs_arr,dice_val,'c',label='dice_val')
+    plt.legend(bbox_to_anchor=(1.05,1),loc=2,borderaxespad=0.)
+    plt.savefig(model_st_ae.test_train_dst+'/train_val_dice_st_ae.png')
+    plt.close()
+    return model_st_ae,best_model   
     
     
 def test_st_ae(model=None,fname='0',save_dir='0'):
@@ -1067,12 +1267,22 @@ def test_st_ae(model=None,fname='0',save_dir='0'):
     
     if(not(fname=='0')):
         model.load_model(fname)
-        
-    with open(model.test_train_dst+'/test_loader_st.p', 'rb') as pickle_file:
-        dataset_loader = pickle.load(pickle_file)
     
-    with open(model.test_train_dst+'/test_size_st.p', 'rb') as pickle_file:
-        dset_size = pickle.load(pickle_file)
+    if(model.use_saved_data):
+    
+        with open(model.saved_data_path+'/test_loader_st.p', 'rb') as pickle_file:
+            dataset_loader = pickle.load(pickle_file)
+
+        with open(model.saved_data_path+'/test_size_st.p', 'rb') as pickle_file:
+            dset_size = pickle.load(pickle_file)
+
+    else:
+        
+        with open(model.test_train_dst+'/test_loader_st.p', 'rb') as pickle_file:
+            dataset_loader = pickle.load(pickle_file)
+
+        with open(model.test_train_dst+'/test_size_st.p', 'rb') as pickle_file:
+            dset_size = pickle.load(pickle_file)
     
     model = model.cuda()
     
@@ -1080,7 +1290,7 @@ def test_st_ae(model=None,fname='0',save_dir='0'):
     for i in dataset_loader['Test']:
         #print(i)
         inp1,label = i
-        print(label.size())
+        #print(label.size())
         inp1 = Variable(inp1.cuda())
         #print(inp1.size())
         label = Variable(label.cuda())
@@ -1089,6 +1299,11 @@ def test_st_ae(model=None,fname='0',save_dir='0'):
         for i in range(label.size()[0]):
             scipy.misc.imsave(save_dir+'/'+str(i)+'_input.png',
                               scipy.misc.imresize(inp1.data.cpu()[i,:,:,:].numpy().reshape(64,64),(100,100)))
+            scipy.misc.imsave(save_dir+'/'+str(i)+'_test_64.png',
+                              out.data.cpu()[i,:].numpy().reshape(64,64))
+            scipy.misc.imsave(save_dir+'/'+str(i)+'_label_64.png',
+                              label.data.cpu()[i,:].numpy().reshape(64,64))
+
             scipy.misc.imsave(save_dir+'/'+str(i)+'_test.png',
                               scipy.misc.imresize(out.data.cpu()[i,:].numpy().reshape(64,64),(100,100)))
             scipy.misc.imsave(save_dir+'/'+str(i)+'_label.png',
