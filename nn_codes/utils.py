@@ -2,14 +2,14 @@ import os
 import matplotlib.pyplot as plt
 import simplejson
 import shutil
-
+import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
 import scipy.misc
 import cv2
-
+from torch.autograd import Function
 '''
 def compare_result(box_path,label_path,img_path):
     for i in os.listdir(box_path):
@@ -17,6 +17,73 @@ def compare_result(box_path,label_path,img_path):
             img = plt.imread()
 '''
 
+class DiceLoss(Function):
+    def __init__(self):
+        super(DiceLoss,self).__init__()
+        pass
+    
+    def forward(self,out,target):
+        eps = 1e-8
+        self.out = out
+        out_thresh = (torch.sign(out-0.5)+1)/2
+        size0 = target.size(0)
+        
+        
+        
+        out_thresh = out_thresh.view(size0,64,64)
+        
+        target  = target.view(size0,64,64)
+        intersect_map = out_thresh*target
+        
+        union_map = out_thresh*out_thresh + target*target
+        
+        intersect = torch.sum( intersect_map.view(size0,-1),1).squeeze()
+        
+        union = torch.sum(union_map.view(size0,-1),1).squeeze()
+        
+        
+        self.target = target
+        
+        self.intersect = intersect
+        self.union = union
+        
+        the_loss = torch.sum(2*intersect/(union+eps))/size0
+        
+        fin_loss = torch.FloatTensor(1).fill_(the_loss)
+        
+        #print(union.size())
+        #print(intersect.size())
+        
+        #print(self.out.size())
+        if(out.is_cuda):
+            return fin_loss.cuda()
+        else:
+            return fin_loss
+        
+        
+    def backward(self,grad_output):
+        
+        grad_input = torch.zeros(self.out.size())
+        intersect = self.intersect
+        union = self.union
+        
+        for i in range(self.target.size()[0]):
+            #print(self.target.size())
+            #print(self.out.size())
+            
+            dice_grad = 2*(self.target[i,:]*union[i] - 2*self.out[i,:]*intersect[i])/(union[i]**2)
+            #print(grad_output.size())
+            #print(dice_grad.size())
+            grad_input[i,:] = dice_grad*grad_output[0]
+        
+        if self.out.is_cuda:
+            grad_input = grad_input.cuda()
+            
+        
+        return grad_input,None
+    
+    
+        
 def change_name(img_src,label_src,dst='/data/gabriel/LVseg/renamed/'):
     '''
     try:
@@ -240,7 +307,7 @@ def split_im(src_img,src_label,dst,split_fraction=0.7):
         scipy.misc.imsave(dst+'/'+'val_label/'+i+'.png',plt.imread(src_label+'/'+i))
 
         
-    return len(img_train_gen),len(img_test_gen)
+    return len(img_train_gen),len(img_val_gen),len(img_test_gen)
     
 def crop_roi(img_path,label_path,save_path='/data/gabriel/LVseg/dataset_img/cropped',few_images=False):
     try:
@@ -372,18 +439,23 @@ def get_series(label_path,test_fraction = 0.05):
 def find_stats(path):
     
     im_list = (plt.imread(path+'/'+i).reshape(1,-1) for i in os.listdir(path) if not(i=='.') and not(i=='.DS_Store'))
+    im_list2 = im_list
     count = 0
     Ex2 = 0
     mean = 0
-    for i in im_list:
-        mean += i.mean()
-        y = i**2
-        Ex2 += y.mean()
-        count+=1
-    mean/=count
-    Ex2/=count
-    Ex2-=mean**2
-    Ex2 = np.sqrt(Ex2)
+    
+    num_im = len([i for i in os.listdir(path) if '.png' in i])
+    all_im = np.zeros((num_im,4096))
+    
+    count2=0
+    
+    for i in im_list2:
+        all_im[count2,:] = i
+        count2+=1
+    
+    Ex2 = np.std(all_im,0)
+    mean = np.mean(all_im,0)
+    
     return mean,Ex2
 
 
@@ -455,3 +527,11 @@ def get_patches(data_path,save_path,count = 5*10**4,patch_resize=True,patch_size
         scipy.misc.imsave(save_path+'/'+str(count1)+'.png',patch)
         count1+=1
         i+=1
+
+def calc_per_image_dice(output,label):
+    output_thresh = np.zeros_like(output)
+    output_thresh[output>0.5] = 1
+    return 2.0*np.sum(output_thresh[label==1.0])/(np.sum(output_thresh) + np.sum(label))
+
+    
+    
