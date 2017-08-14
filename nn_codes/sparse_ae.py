@@ -692,16 +692,16 @@ class StackedAE(nn.Module):
             if(self.use_smax):
                 self.fc1 = nn.Sequential(
                         nn.Linear(n_in*n_in,n_h),
-                        nn.Relu()
+                        nn.ReLU()
                         )
                 self.fc2 = nn.Sequential(
                         nn.Linear(n_h,n_h),
-                        nn.Relu(),
+                        nn.ReLU(),
                         )
 
                 self.fc3 = nn.Sequential(
                         nn.Linear(n_h,n_out*n_out),
-                        nn.Relu(),
+                        nn.ReLU(),
                         nn.LogSoftmax()
                         )
             else:
@@ -897,21 +897,37 @@ class StackedAE(nn.Module):
         
         for i in os.listdir(self.test_train_dst+'/'+mode+'_img'):
             count+=1
-            im_arr[count,0,:,:] = plt.imread(self.test_train_dst+'/'+mode+'_img/'+i)
-            lab_arr[count,:,:] = plt.imread(self.test_train_dst+'/'+mode+'_label/'+i)
+            
+            
+            IMG = plt.imread(self.test_train_dst+'/'+mode+'_img/'+i)
+            LAB = plt.imread(self.test_train_dst+'/'+mode+'_label/'+i)
         
+            im_arr[count,0,:,:] = IMG
+            lab_arr[count,:,:] = LAB
+            
+            if(IMG.shape[0]**2 == self.n_in**2):
+                IMG = scipy.misc.imresize(IMG,(64,64))
+                LAB = scipy.misc.imresize(LAB,(64,64))
+            
+            im_arr[count,0,:,:] = (im_arr[count,0,:,:] - im_arr[count,0,:,:].min())/(im_arr[count,0,:,:].max() - im_arr[count,0,:,:].min())
+            
+            lab_arr[count,:,:] = (lab_arr[count,:,:] - lab_arr[count,:,:].min())/(lab_arr[count,:,:].max() - lab_arr[count,:,:].min())
+            
         #print(lab_arr.max())
         #print(lab_arr.min())
         #print(lab_arr[lab_arr>0].min())
         #lab_arr = 0.5*(np.sign(lab_arr - 0.5) + 1)
         lab_arr[lab_arr>0]=1.0
+        
+        
+        
         im_arr[:,0,:,:] = (im_arr[:,0,:,:] - im_arr[:,0,:,:].min())/(im_arr[:,0,:,:].max() - im_arr[:,0,:,:].min())
         
         im_temp = im_arr.reshape([-1,self.n_in*self.n_in])
         
         if(self.mean_sd_norm):
         
-            im_arr =torch.Tensor((im_temp-im_temp.mean())/im_temp.std()).view(-1,1,64,64)
+            im_arr =torch.Tensor((im_temp-im_temp.mean(axis=0))/im_temp.std(axis=0)).view(-1,1,64,64)
         else:
             im_arr =torch.Tensor(im_temp).view(-1,1,self.n_in,self.n_in)
         #return    
