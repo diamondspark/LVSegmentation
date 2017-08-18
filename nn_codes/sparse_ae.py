@@ -36,7 +36,7 @@ class SAE(nn.Module):
         self.rho = rho
         self.patch_size=patch_size
         self.test_fraction=test_fraction
-        self.b_size=int(b_size)
+        self.b_size=b_size
         self.n_in = int(n_in)
         self.n_h = int(n_h)
         self.n_out = int(n_out)
@@ -48,7 +48,7 @@ class SAE(nn.Module):
                                 )
         
         self.fc2 = nn.Sequential(
-                                 nn.Linear(n_h,self.n_out*self.n_out),
+                                 nn.Linear(self.n_h,self.n_out*self.n_out),
                                  #nn.BatchNorm1d(n_out*n_out),
                                  nn.Sigmoid()
                                 )
@@ -692,16 +692,16 @@ class StackedAE(nn.Module):
             if(self.use_smax):
                 self.fc1 = nn.Sequential(
                         nn.Linear(n_in*n_in,n_h),
-                        nn.ReLU()
+                        nn.ReLU(inplace=True)
                         )
                 self.fc2 = nn.Sequential(
                         nn.Linear(n_h,n_h),
-                        nn.ReLU(),
+                        nn.ReLU(inplace=True),
                         )
 
                 self.fc3 = nn.Sequential(
                         nn.Linear(n_h,n_out*n_out),
-                        nn.ReLU(),
+                        nn.ReLU(inplace=True),
                         nn.LogSoftmax()
                         )
             else:
@@ -801,14 +801,13 @@ class StackedAE(nn.Module):
         self.b_size=b_size
         
     
+    #@staticmethod
+    def loss_fn_l2(self,inp,target):
+        return torch.norm(inp - target)**2
     
-    @staticmethod
-    def loss_fn_l2(inp,target):
-        return torch.norm(inp - target)
+    #staticmethod
     
-    @staticmethod
-    
-    def loss_fn_bce(inp,target):
+    def loss_fn_bce(self,inp,target):
         
         #return torch.nn.functional.binary_cross_entropy(inp,target)
         #print(inp)
@@ -816,8 +815,8 @@ class StackedAE(nn.Module):
         
         return torch.nn.functional.binary_cross_entropy(inp,target)
     
-    @staticmethod
-    def loss_fn_bce_log(inp,target):
+    #staticmethod
+    def loss_fn_bce_log(self,inp,target):
         
         #return torch.nn.functional.binary_cross_entropy(inp,target)
         #print(inp)
@@ -827,8 +826,8 @@ class StackedAE(nn.Module):
         return bce_loss(inp,target)
     
     
-    @staticmethod
-    def dice_loss(inp,target):
+    #staticmethod
+    def dice_loss(self,inp,target):
         dice = DiceLoss()
         return dice(inp,target)
         
@@ -902,12 +901,14 @@ class StackedAE(nn.Module):
             IMG = plt.imread(self.test_train_dst+'/'+mode+'_img/'+i)
             LAB = plt.imread(self.test_train_dst+'/'+mode+'_label/'+i)
         
+
+            #print(IMG.shape[0])
+            if(not(IMG.shape[0]**2 == self.n_in**2)):
+                #print('here')
+                IMG = scipy.misc.imresize(IMG,(64,64))/255.0
+                LAB = scipy.misc.imresize(LAB,(64,64))/255.0
             im_arr[count,0,:,:] = IMG
             lab_arr[count,:,:] = LAB
-            
-            if(IMG.shape[0]**2 == self.n_in**2):
-                IMG = scipy.misc.imresize(IMG,(64,64))
-                LAB = scipy.misc.imresize(LAB,(64,64))
             
             im_arr[count,0,:,:] = (im_arr[count,0,:,:] - im_arr[count,0,:,:].min())/(im_arr[count,0,:,:].max() - im_arr[count,0,:,:].min())
             
@@ -921,7 +922,7 @@ class StackedAE(nn.Module):
         
         
         
-        im_arr[:,0,:,:] = (im_arr[:,0,:,:] - im_arr[:,0,:,:].min())/(im_arr[:,0,:,:].max() - im_arr[:,0,:,:].min())
+        #im_arr[:,0,:,:] = (im_arr[:,0,:,:] - im_arr[:,0,:,:].min())/(im_arr[:,0,:,:].max() - im_arr[:,0,:,:].min())
         
         im_temp = im_arr.reshape([-1,self.n_in*self.n_in])
         
@@ -1078,12 +1079,14 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
                 else:
                     for k in module.children():
                         k.requires_grad=True
+            optim_pretrain = optim.Adam(pre_trained_st.parameters(),lr = model_st_ae.lr,weight_decay=10**-4)
+            '''
             optim_pretrain = optim.Adam([
                                          {'params':model_st_ae.fc1.parameters(),'lr' : 0},
                                          {'params':model_st_ae.fc2.parameters(),'lr' : 0},
                                          {'params':model_st_ae.fc3.parameters(),'lr' : 0.0001,'weight_decay':10**-4}
                                         ])
-            
+            '''
             for pre_train_epochs in range(0,pre_train_epochs):
                 for i in dataset_loader['Training']:
                     inp,label = i
@@ -1191,22 +1194,26 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
         param.requires_grad=True
     model_st_ae.cuda()
 
-    optim2 = optim.Adam(model_st_ae.parameters(),lr = model_st_ae.lr,weight_decay=10**-4)
+    #optim2 = optim.Adam(model_st_ae.parameters(),lr = model_st_ae.lr,weight_decay=10**-4)
+    optim2 = optim.SGD(model_st_ae.parameters(),lr = model_st_ae.lr,weight_decay=10**-4)
+    
     val_loss_curve = []
     dice_val = []
     dice_train = []
     best_dice = 0
     epochs_arr = []
     lr = model_st_ae.lr
-    for epoch_train in range(0,epochs):
+    sch = 0.1
+    try:
+        shutil.rmtree(model_st_ae.test_train_dst+'/epoch_output')
+        os.makedirs(model_st_ae.test_train_dst+'/epoch_output')
+    except:
+        os.makedirs(model_st_ae.test_train_dst+'/epoch_output')
+    
+    for epoch_train in range(0,1000):
         epochs_arr.append(epoch_train)
         
-        if(epoch_train%500==0 ):#and epoch_train>0):
-             
-            lr = lr*(0.5**(epoch_train//500))
-            for params in optim2.param_groups:
-                #print('sss')
-                params['lr'] = lr
+        
         
         for phase in ['Training','Val']:
             
@@ -1216,9 +1223,29 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
                 
                 inp,label = i
                 inp,label = Variable(inp.cuda()),Variable(label.cuda())
-                
+                optim2.zero_grad()
                 #out = model_st_ae(inp)
                 out = model_st_ae(inp)
+                
+                if(epoch_train%10 ==0 and epoch_train < 1000):
+                    temp_out = out.cpu().data.numpy().reshape(-1,64,64)
+                    temp_input = inp.cpu().data.numpy().reshape(-1,64,64)
+                    
+                    try:
+                        shutil.rmtree(model_st_ae.test_train_dst+'/epoch_output/'+str(epoch_train))
+                        os.makedirs(model_st_ae.test_train_dst+'/epoch_output/'+str(epoch_train))
+                    except:
+                        os.makedirs(model_st_ae.test_train_dst+'/epoch_output/'+str(epoch_train))
+
+                    for Num in range(0,temp_out.shape[0]):
+                        scipy.misc.imsave(model_st_ae.test_train_dst+'/epoch_output/'+str(epoch_train)+
+                                          '/'+str(Num)+'out_'+phase+'.png',temp_out[Num,:,:])
+                        scipy.misc.imsave(model_st_ae.test_train_dst+'/epoch_output/'+str(epoch_train)+
+                                          '/'+str(Num)+'inp_'+phase+'.png',temp_input[Num,:,:])
+                    
+                    
+                    
+                    
                 
                 for j in range(0,data_size[phase]):
                     avg_dice +=  calc_per_image_dice(out[j,:].cpu().data.numpy().reshape(64,64),
@@ -1226,15 +1253,25 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
                 
                 avg_dice/=data_size[phase]
                                           
-                loss =model_st_ae.loss_fn(0.5/data_size[phase]*out,label)
+                loss =model_st_ae.loss_fn(0.5*out/data_size[phase],label)
                 #print(phase)
                 #print(loss)
                 
                 if(phase=='Training'):
                     
-                    optim2.zero_grad()
+                    
                     loss.backward()
                     optim2.step()
+                    if(epoch_train%20==0 ):#and epoch_train>0):
+             
+                        lr = lr*(sch**(epoch_train//20))
+                        for params in optim2.param_groups:
+                            #print('sss')
+                            params['lr'] = lr
+                    
+                    
+                    
+                    
                 running_loss+=loss.cpu().data[0]
                 
             if(phase=='Val'):
@@ -1243,9 +1280,10 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
             else:
                 dice_train.append(avg_dice)
                 train_loss_curve.append(running_loss)
-        
-        if(best_dice<avg_dice and phase =='Val'):
+        print(best_dice)
+        if(best_dice<avg_dice and phase =='Val' and avg_dice>0.5):
             best_dice=avg_dice
+            sch*=0.01
             best_model=model_st_ae
     
     #best_model.store_model(fname = '')
@@ -1258,16 +1296,21 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
     val_loss_curve = np.array(val_loss_curve)
     
     plt.plot(epochs_arr,train_loss_curve,'b',label='train_loss')
+    plt.savefig(model_st_ae.test_train_dst+'/train_loss_st_ae.png')
+    plt.close()
+    
     plt.plot(epochs_arr,val_loss_curve,'r',label='val_loss')
-    plt.legend(bbox_to_anchor=(1.05,1),loc=2,borderaxespad=0.)
-    plt.savefig(model_st_ae.test_train_dst+'/train_val_loss_st_ae.png')
+    plt.savefig(model_st_ae.test_train_dst+'/val_loss_st_ae.png')
     plt.close()
     
     plt.plot(epochs_arr,dice_train,'o',label='dice_train')
-    plt.plot(epochs_arr,dice_val,'c',label='dice_val')
-    plt.legend(bbox_to_anchor=(1.05,1),loc=2,borderaxespad=0.)
-    plt.savefig(model_st_ae.test_train_dst+'/train_val_dice_st_ae.png')
+    plt.savefig(model_st_ae.test_train_dst+'/train_dice_st_ae.png')
     plt.close()
+    
+    plt.plot(epochs_arr,dice_val,'c',label='dice_val')
+    plt.savefig(model_st_ae.test_train_dst+'/val_dice_st_ae.png')
+    plt.close()
+    
     return model_st_ae,best_model   
     
     

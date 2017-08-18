@@ -295,16 +295,24 @@ def split_im(src_img,src_label,dst,split_fraction=0.7):
    
     for i in img_train_gen: 
         #print(i)
-        scipy.misc.imsave(dst+'/'+'train_img/'+i+'.png',plt.imread(src_img+'/'+i))
-        scipy.misc.imsave(dst+'/'+'train_label/'+i+'.png',plt.imread(src_label+'/'+i))
+        if('.png' in i):
+            i = i[:i.find('.png')]
+        scipy.misc.imsave(dst+'/'+'train_img/'+i+'.png',plt.imread(src_img+'/'+i+'.png'))
+        scipy.misc.imsave(dst+'/'+'train_label/'+i+'.png',plt.imread(src_label+'/'+i+'.png'))
     
     for i in img_test_gen:
-        scipy.misc.imsave(dst+'/'+'test_img/'+i+'.png',plt.imread(src_img+'/'+i))
-        scipy.misc.imsave(dst+'/'+'test_label/'+i+'.png',plt.imread(src_label+'/'+i))
+        if('.png' in i):
+            i = i[:i.find('.png')]
+
+        scipy.misc.imsave(dst+'/'+'test_img/'+i+'.png',plt.imread(src_img+'/'+i+'.png'))
+        scipy.misc.imsave(dst+'/'+'test_label/'+i+'.png',plt.imread(src_label+'/'+i+'.png'))
 
     for i in img_val_gen:
-        scipy.misc.imsave(dst+'/'+'val_img/'+i+'.png',plt.imread(src_img+'/'+i))
-        scipy.misc.imsave(dst+'/'+'val_label/'+i+'.png',plt.imread(src_label+'/'+i))
+        if('.png' in i):
+            i = i[:i.find('.png')]
+
+        scipy.misc.imsave(dst+'/'+'val_img/'+i+'.png',plt.imread(src_img+'/'+i+'.png'))
+        scipy.misc.imsave(dst+'/'+'val_label/'+i+'.png',plt.imread(src_label+'/'+i+'.png'))
 
         
     return len(img_train_gen),len(img_val_gen),len(img_test_gen)
