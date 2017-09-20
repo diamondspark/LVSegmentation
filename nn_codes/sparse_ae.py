@@ -1210,7 +1210,7 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
     except:
         os.makedirs(model_st_ae.test_train_dst+'/epoch_output')
     
-    for epoch_train in range(0,1000):
+    for epoch_train in range(0,epochs):
         epochs_arr.append(epoch_train)
         
         
@@ -1283,7 +1283,7 @@ def train_st_ae(model_st_ae,epochs,cache_dir,pre_train_epochs,loss_graph_name):
         print(best_dice)
         if(best_dice<avg_dice and phase =='Val' and avg_dice>0.5):
             best_dice=avg_dice
-            sch*=0.01
+            #sch*=0.01
             best_model=model_st_ae
     
     #best_model.store_model(fname = '')

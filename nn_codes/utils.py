@@ -270,7 +270,7 @@ def get_256_data(img_src,label_src,label_dst,img_dst):
 def split_im(src_img,src_label,dst,split_fraction=0.7):
     
     train,val,test = get_series(label_path = src_label,test_fraction = 1-split_fraction)
-    
+    #print(train)
     try:
         shutil.rmtree(dst)
         os.makedirs(dst)
@@ -289,30 +289,34 @@ def split_im(src_img,src_label,dst,split_fraction=0.7):
         os.makedirs(dst+'/'+'train_img')
         os.makedirs(dst+'/'+'test_label')
 
-    img_train_gen = [k for k in os.listdir(src_img) if '.png' in k and k[:-4] in train]
-    img_val_gen = [k for k in os.listdir(src_img) if '.png' in k and k[:-4] in val]
-    img_test_gen = [k for k in os.listdir(src_img) if '.png' in k and k[:-4] in test]
-   
+    img_train_gen = [k[:-4] for k in os.listdir(src_img) if len(k)>4 and k[:-4] in train]
+    img_val_gen = [k[:-4] for k in os.listdir(src_img) if len(k)>4 and k[:-4] in val]
+    img_test_gen = [k[:-4] for k in os.listdir(src_img) if len(k)>4 and k[:-4] in test]
+    
+    #print(img_train_gen)
+
     for i in img_train_gen: 
         #print(i)
-        if('.png' in i):
-            i = i[:i.find('.png')]
-        scipy.misc.imsave(dst+'/'+'train_img/'+i+'.png',plt.imread(src_img+'/'+i+'.png'))
-        scipy.misc.imsave(dst+'/'+'train_label/'+i+'.png',plt.imread(src_label+'/'+i+'.png'))
-    
+        #if('.png' in i):
+        ### TODO Ideal way to do below code is to find the last instance of '.', or faster might be to have an array all possible image extensions and compare
+        #i = i[:-4]
+        #print('\n'+i+'\n')
+        scipy.misc.imsave(dst+'/'+'train_img/'+i+'.jpg',plt.imread(src_img+'/'+i+'.jpg'))
+        scipy.misc.imsave(dst+'/'+'train_label/'+i+'.bmp',plt.imread(src_label+'/'+i+'.bmp'))
+        
     for i in img_test_gen:
-        if('.png' in i):
-            i = i[:i.find('.png')]
-
-        scipy.misc.imsave(dst+'/'+'test_img/'+i+'.png',plt.imread(src_img+'/'+i+'.png'))
-        scipy.misc.imsave(dst+'/'+'test_label/'+i+'.png',plt.imread(src_label+'/'+i+'.png'))
+        #if('.png' in i):
+        #i = i[:-4]
+        
+        scipy.misc.imsave(dst+'/'+'test_img/'+i+'.jpg',plt.imread(src_img+'/'+i+'.jpg'))
+        scipy.misc.imsave(dst+'/'+'test_label/'+i+'.bmp',plt.imread(src_label+'/'+i+'.bmp'))
 
     for i in img_val_gen:
-        if('.png' in i):
-            i = i[:i.find('.png')]
-
-        scipy.misc.imsave(dst+'/'+'val_img/'+i+'.png',plt.imread(src_img+'/'+i+'.png'))
-        scipy.misc.imsave(dst+'/'+'val_label/'+i+'.png',plt.imread(src_label+'/'+i+'.png'))
+        #if('.png' in i):
+        #i = i[:-4]
+        
+        scipy.misc.imsave(dst+'/'+'val_img/'+i+'.jpg',plt.imread(src_img+'/'+i+'.jpg'))
+        scipy.misc.imsave(dst+'/'+'val_label/'+i+'.bmp',plt.imread(src_label+'/'+i+'.bmp'))
 
         
     return len(img_train_gen),len(img_val_gen),len(img_test_gen)
@@ -415,8 +419,12 @@ def get_series(label_path,test_fraction = 0.05):
     
     ### permanently 0.1 val fraction
     
-    series_name = [i[:-4] for i in os.listdir(label_path) if '.png' in i]
-    
+    series_name = [i[:-4] for i in os.listdir(label_path) if len(i)>3]
+    if('GT_' in series_name[0]):
+        series_name = [i[3:-4] for i in os.listdir(label_path) if len(i)>3]
+
+    #print(label_path)
+    #print(series_name)
     val_fraction=0.1
     train_fraction=0.9
     
